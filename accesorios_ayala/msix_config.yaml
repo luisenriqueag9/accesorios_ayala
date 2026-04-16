@@ -1,0 +1,18 @@
+msix_config:
+  display_name: Accesorios Ayala
+  publisher: "CN=Luis Enrique Ortiz Aguilar"
+  version: "1.0.0.0"
+
+  logo_path: assets/logo/app_icon.png
+  start_menu_icon_path: assets/logo/app_icon.png
+  tile_icon_path: assets/logo/app_icon.png
+
+  start_menu: true
+  desktop_shortcut: true
+
+  sign_msix: true
+  certificate_path: cert_ayala_final.pfx
+  certificate_password: "ayala123"
+
+  capabilities:
+    - internetClient

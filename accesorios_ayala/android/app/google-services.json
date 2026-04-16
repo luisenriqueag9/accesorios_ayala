@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "826791245810",
+    "project_id": "accesorios-ayala",
+    "storage_bucket": "accesorios-ayala.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:826791245810:android:b53aa3baaf9abc26c31d6b",
+        "android_client_info": {
+          "package_name": "com.example.accesorios_ayala"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAbp_UofT9kxZHgE0DpZq9T4mmoOLzqbdM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

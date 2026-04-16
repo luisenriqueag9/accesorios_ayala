@@ -1,0 +1,62 @@
+name: accesorios_ayala
+description: "Proyecto Flutter Accesorios Ayala"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # Utilidades generales
+  shared_preferences: ^2.2.2
+  intl: ^0.19.0
+  url_launcher: ^6.3.0
+  share_plus: ^7.0.0
+  font_awesome_flutter: ^10.7.0
+  audioplayers: ^5.2.0
+
+  # Archivos / imágenes / PDF
+  image_picker: ^1.2.1
+  file_picker: ^8.0.0
+  pdf: ^3.11.3
+  printing: ^5.11.1
+
+  # Local storage (PRODUCTOS)
+  sqflite: ^2.3.0
+  path: ^1.9.0
+  path_provider: ^2.1.2
+  idb_shim: ^2.4.1
+
+  # Firebase (SOLO clientes)
+  firebase_core: ^3.6.0
+  cloud_firestore: ^5.5.0
+
+  # Windows
+  msix: ^3.16.12
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/logo/logo_ayala.png
+    - assets/logo/app_icon.png
+    - assets/icons/facebook.png
+    - assets/icons/instagram.png
+    - assets/icons/whatsapp_qr.png
+
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/logo/app_icon.png"
