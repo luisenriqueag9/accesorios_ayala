@@ -1,12 +1,8 @@
-import 'dart:convert';
-import 'dart:typed_data';
 import 'dart:ui';
-import 'dart:io';
-
-import 'package:flutter/foundation.dart';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 
 import '../models/producto.dart';
 import '../controllers/producto_controller.dart';
@@ -29,7 +25,24 @@ class _RegistrarProductoViewState extends State<RegistrarProductoView> {
   final precioCtrl = TextEditingController();
 
   Uint8List? imagenBytes;
-  String? imagenPath;
+  
+
+  Future<String?> subirImagenStorage(Uint8List bytes) async {
+    try {
+      final fileName = 'productos/${DateTime.now().millisecondsSinceEpoch}.jpg';
+
+      final ref = FirebaseStorage.instance.ref().child(fileName);
+
+      await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+
+      final url = await ref.getDownloadURL();
+
+      return url;
+    } catch (e) {
+      debugPrint('Error subiendo imagen: $e');
+      return null;
+    }
+  }
 
   @override
   void initState() {
@@ -39,23 +52,7 @@ class _RegistrarProductoViewState extends State<RegistrarProductoView> {
       nombreCtrl.text = widget.producto!.nombre;
       descripcionCtrl.text = widget.producto!.descripcion;
       precioCtrl.text = widget.producto!.precio.toString();
-
-      if (kIsWeb && widget.producto!.imagenBase64 != null) {
-        imagenBytes = widget.producto!.imagenBytes;
-      }
-
-      if (!kIsWeb && widget.producto!.imagenPath != null) {
-        imagenPath = widget.producto!.imagenPath;
-        _cargarImagenLocal(imagenPath!);
-      }
     }
-  }
-
-  Future<void> _cargarImagenLocal(String path) async {
-    try {
-      final bytes = await File(path).readAsBytes();
-      setState(() => imagenBytes = bytes);
-    } catch (_) {}
   }
 
   Future<void> seleccionarImagen() async {
@@ -71,20 +68,9 @@ class _RegistrarProductoViewState extends State<RegistrarProductoView> {
 
     final bytes = await image.readAsBytes();
 
-    if (kIsWeb) {
-      setState(() => imagenBytes = bytes);
-    } else {
-      final dir = await getApplicationDocumentsDirectory();
-      final fileName = 'producto_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final filePath = '${dir.path}/$fileName';
-
-      await File(filePath).writeAsBytes(bytes);
-
-      setState(() {
-        imagenPath = filePath;
-        imagenBytes = bytes;
-      });
-    }
+    setState(() {
+      imagenBytes = bytes;
+    });
   }
 
   Future<void> guardar() async {
@@ -100,20 +86,29 @@ class _RegistrarProductoViewState extends State<RegistrarProductoView> {
 
     final precio = double.tryParse(precioCtrl.text);
     if (precio == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Precio inválido")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Precio inválido")));
+      return;
+    }
+
+    final imageUrl = await subirImagenStorage(imagenBytes!);
+
+    if (imageUrl == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Error subiendo imagen')));
       return;
     }
 
     final producto = Producto(
-      id: widget.producto?.id ??
+      id:
+          widget.producto?.id ??
           DateTime.now().millisecondsSinceEpoch.toString(),
       nombre: nombreCtrl.text.trim(),
       descripcion: descripcionCtrl.text.trim(),
       precio: precio,
-      imagenPath: kIsWeb ? null : imagenPath,
-      imagenBase64: kIsWeb ? base64Encode(imagenBytes!) : null,
+      imageUrl: imageUrl,
     );
 
     await ProductoController.guardarProducto(producto);
@@ -133,9 +128,7 @@ class _RegistrarProductoViewState extends State<RegistrarProductoView> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          widget.producto == null
-              ? "Registrar Producto"
-              : "Editar Producto",
+          widget.producto == null ? "Registrar Producto" : "Editar Producto",
         ),
       ),
       body: Stack(
@@ -208,11 +201,7 @@ Widget _fondoDegradado() {
   return Container(
     decoration: const BoxDecoration(
       gradient: LinearGradient(
-        colors: [
-          Color(0xFFE1F5FE),
-          Color(0xFFCCF2F7),
-          Colors.white,
-        ],
+        colors: [Color(0xFFE1F5FE), Color(0xFFCCF2F7), Colors.white],
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
       ),

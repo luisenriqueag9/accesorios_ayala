@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -32,6 +33,20 @@ class PdfWebService {
     // ✅ LOGO CORRECTO (ruta real)
     final logoBytes = await rootBundle.load('assets/logo/logo_ayala.png');
     final logo = pw.MemoryImage(logoBytes.buffer.asUint8List());
+
+    final Map<String, pw.MemoryImage> imagenesProductos = {};
+
+    for (var item in seleccionados) {
+      final p = item['producto'] as Producto;
+
+      if (p.imageUrl != null && p.imageUrl!.isNotEmpty) {
+        final response = await http.get(Uri.parse(p.imageUrl!));
+
+        if (response.statusCode == 200) {
+          imagenesProductos[p.id] = pw.MemoryImage(response.bodyBytes);
+        }
+      }
+    }
 
     pdf.addPage(
       pw.Page(
@@ -153,21 +168,22 @@ class PdfWebService {
                     final c = item['cantidad'] as int;
 
                     // ✅ IMAGEN PROTEGIDA (NO ROMPE EL PDF)
-                    pw.Widget imagenProducto;
-                    if (p.imagenBase64 != null && p.imagenBase64!.isNotEmpty) {
-                      imagenProducto = pw.Image(
-                        pw.MemoryImage(base64Decode(p.imagenBase64!)),
-                        width: 35,
-                        height: 35,
-                      );
-                    } else {
-                      imagenProducto = pw.Container(
-                        width: 35,
-                        height: 35,
-                        alignment: pw.Alignment.center,
-                        child: pw.Text('N/A', style: pw.TextStyle(fontSize: 8)),
-                      );
-                    }
+                    final imagenProducto = imagenesProductos.containsKey(p.id)
+                        ? pw.Image(
+                            imagenesProductos[p.id]!,
+                            width: 35,
+                            height: 35,
+                            fit: pw.BoxFit.cover,
+                          )
+                        : pw.Container(
+                            width: 35,
+                            height: 35,
+                            alignment: pw.Alignment.center,
+                            child: pw.Text(
+                              'SIN FOTO',
+                              style: pw.TextStyle(fontSize: 6),
+                            ),
+                          );
 
                     return pw.TableRow(
                       children: [
@@ -187,7 +203,7 @@ class PdfWebService {
                         ),
                       ],
                     );
-                  }).toList(),
+                  }),
                 ],
               ),
 

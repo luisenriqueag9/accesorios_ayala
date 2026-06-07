@@ -7,6 +7,7 @@ import 'lista_clientes_view.dart';
 import 'lista_productos_view.dart';
 import 'seleccionar_cliente_view.dart';
 import 'seleccionar_productos_view.dart';
+import 'resumen_ventas_view.dart';
 
 class HomeView extends StatelessWidget {
   const HomeView({super.key});
@@ -128,6 +129,24 @@ class HomeView extends StatelessWidget {
                     child: const ListTile(
                       leading: Icon(Icons.receipt_long, size: 33),
                       title: Text("Generar Recibo"),
+                      trailing: Icon(Icons.chevron_right),
+                    ),
+                  ),
+
+                  const SizedBox(height: 15),
+
+                  _buildGlassCard(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const ResumenVentasView(),
+                        ),
+                      );
+                    },
+                    child: const ListTile(
+                      leading: Icon(Icons.bar_chart, size: 33),
+                      title: Text("Ventas"),
                       trailing: Icon(Icons.chevron_right),
                     ),
                   ),

@@ -128,7 +128,7 @@ class _RegistrarClienteViewState extends State<RegistrarClienteView> {
                   const SizedBox(height: 10),
 
                   DropdownButtonFormField<String>(
-                    value: departamentoSeleccionado,
+                    initialValue: departamentoSeleccionado,
                     items: departamentos
                         .map(
                           (d) => DropdownMenuItem(

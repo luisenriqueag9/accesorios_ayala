@@ -4,6 +4,8 @@ import 'package:accesorios_ayala/utils/open_pdf_web.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import '../utils/descargar_pdf_web.dart';
+import '../models/venta.dart';
+import '../controllers/venta_controller.dart';
 
 import '../models/cliente.dart';
 import '../models/producto.dart';
@@ -108,12 +110,19 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
                             children: [
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(10),
-                                child: p.imagenBytes != null
-                                    ? Image.memory(
-                                        p.imagenBytes!,
+                                child:
+                                    p.imageUrl != null && p.imageUrl!.isNotEmpty
+                                    ? Image.network(
+                                        p.imageUrl!,
                                         width: 60,
                                         height: 60,
                                         fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) {
+                                          return const Icon(
+                                            Icons.image,
+                                            size: 40,
+                                          );
+                                        },
                                       )
                                     : const Icon(Icons.image, size: 40),
                               ),
@@ -148,7 +157,7 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
                             ],
                           ),
                         );
-                      }).toList(),
+                      }),
                     ],
                   ),
                 ),
@@ -211,6 +220,18 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
                         impuestoPorcentaje:
                             double.tryParse(impuestoCtrl.text) ?? 0,
                       );
+
+                      final venta = Venta(
+                        id: DateTime.now().millisecondsSinceEpoch.toString(),
+                        clienteId: widget.cliente.id,
+                        clienteNombre: widget.cliente.nombre,
+                        fecha: DateTime.now(),
+                        subtotal: subtotal,
+                        impuesto: impuesto,
+                        total: total,
+                      );
+
+                      await VentaController.guardarVenta(venta);
 
                       debugPrint(
                         "✅ PDF generado correctamente (${bytes.length} bytes)",

@@ -59,12 +59,15 @@ class _SeleccionarProductosViewState extends State<SeleccionarProductosView> {
             child: ListTile(
               leading: ClipRRect(
                 borderRadius: BorderRadius.circular(10),
-                child: p.imagenBytes != null
-                    ? Image.memory(
-                        p.imagenBytes!,
+                child: p.imageUrl != null && p.imageUrl!.isNotEmpty
+                    ? Image.network(
+                        p.imageUrl!,
                         width: 55,
                         height: 55,
                         fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) {
+                          return const Icon(Icons.image, size: 40);
+                        },
                       )
                     : const Icon(Icons.image, size: 40),
               ),

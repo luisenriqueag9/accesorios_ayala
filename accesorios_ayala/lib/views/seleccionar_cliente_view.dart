@@ -12,8 +12,12 @@ class SeleccionarClienteView extends StatefulWidget {
 
 class _SeleccionarClienteViewState extends State<SeleccionarClienteView> {
   List<Cliente> clientes = [];
+  List<Cliente> clientesFiltrados = [];
+
   bool cargando = true;
   String? error;
+
+  final buscarCtrl = TextEditingController();
 
   @override
   void initState() {
@@ -21,9 +25,16 @@ class _SeleccionarClienteViewState extends State<SeleccionarClienteView> {
     cargarClientes();
   }
 
+  @override
+  void dispose() {
+    buscarCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> cargarClientes() async {
     try {
       clientes = await ClienteController.cargarClientes();
+      clientesFiltrados = List.from(clientes);
     } catch (e) {
       error = e.toString();
     } finally {
@@ -32,12 +43,28 @@ class _SeleccionarClienteViewState extends State<SeleccionarClienteView> {
     }
   }
 
+  void filtrarClientes(String texto) {
+    setState(() {
+      clientesFiltrados = clientes.where((c) {
+        return c.nombre.toLowerCase().contains(texto.toLowerCase()) ||
+            c.telefono.toLowerCase().contains(texto.toLowerCase()) ||
+            c.direccion.toLowerCase().contains(texto.toLowerCase());
+      }).toList();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Seleccionar Cliente")),
+      appBar: AppBar(
+        title: Text(
+          "Seleccionar Cliente (${clientes.length})",
+        ),
+      ),
       body: cargando
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(
+              child: CircularProgressIndicator(),
+            )
           : error != null
               ? Center(
                   child: Text(
@@ -45,30 +72,82 @@ class _SeleccionarClienteViewState extends State<SeleccionarClienteView> {
                     textAlign: TextAlign.center,
                   ),
                 )
-              : clientes.isEmpty
-                  ? const Center(
-                      child: Text("No hay clientes registrados"),
-                    )
-                  : ListView.builder(
+              : Column(
+                  children: [
+                    Padding(
                       padding: const EdgeInsets.all(16),
-                      itemCount: clientes.length,
-                      itemBuilder: (_, index) {
-                        final c = clientes[index];
-
-                        return Card(
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                      child: TextField(
+                        controller: buscarCtrl,
+                        onChanged: filtrarClientes,
+                        decoration: InputDecoration(
+                          hintText: "Buscar cliente...",
+                          prefixIcon: const Icon(Icons.search),
+                          filled: true,
+                          fillColor: Colors.white,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(15),
                           ),
-                          child: ListTile(
-                            title: Text(c.nombre),
-                            subtitle:
-                                Text("${c.telefono}\n${c.direccion}"),
-                            isThreeLine: true,
-                            onTap: () => Navigator.pop(context, c),
-                          ),
-                        );
-                      },
+                        ),
+                      ),
                     ),
+
+                    Expanded(
+                      child: clientesFiltrados.isEmpty
+                          ? const Center(
+                              child: Text(
+                                "No se encontraron clientes",
+                              ),
+                            )
+                          : ListView.builder(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              itemCount: clientesFiltrados.length,
+                              itemBuilder: (_, index) {
+                                final c = clientesFiltrados[index];
+
+                                return Card(
+                                  elevation: 2,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius:
+                                        BorderRadius.circular(12),
+                                  ),
+                                  child: ListTile(
+                                    leading: CircleAvatar(
+                                      backgroundColor:
+                                          Colors.red.shade100,
+                                      child: Text(
+                                        c.nombre.isNotEmpty
+                                            ? c.nombre[0].toUpperCase()
+                                            : "?",
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                    title: Text(
+                                      c.nombre,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    subtitle: Text(
+                                      "${c.telefono}\n${c.direccion}",
+                                    ),
+                                    isThreeLine: true,
+                                    trailing: const Icon(
+                                      Icons.arrow_forward_ios,
+                                      size: 16,
+                                    ),
+                                    onTap: () =>
+                                        Navigator.pop(context, c),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
     );
   }
 }
