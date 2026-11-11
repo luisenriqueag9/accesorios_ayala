@@ -19,6 +19,7 @@ class _ListaClientesViewState extends State<ListaClientesView> {
   List<Cliente> clientesFiltrados = [];
   String departamentoSeleccionado = "Todos";
   String busqueda = "";
+  bool _eliminando = false;
 
   final List<String> departamentos = [
     "Todos",
@@ -215,12 +216,96 @@ class _ListaClientesViewState extends State<ListaClientesView> {
                                   Icons.delete,
                                   color: Colors.red,
                                 ),
-                                onPressed: () async {
-                                  await ClienteController.eliminarCliente(
-                                    c.id,
-                                  );
-                                  cargar();
-                                },
+                                onPressed: _eliminando
+                                    ? null
+                                    : () async {
+                                        final messenger =
+                                            ScaffoldMessenger.of(context);
+                                        final confirmar =
+                                            await showDialog<bool>(
+                                          context: context,
+                                          builder: (dialogContext) {
+                                            return AlertDialog(
+                                              title: const Text(
+                                                'Eliminar cliente',
+                                              ),
+                                              content: Text(
+                                                '¿Estás seguro de que deseas eliminar a "${c.nombre}"? Esta acción no se puede deshacer',
+                                              ),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () =>
+                                                      Navigator.pop(
+                                                    dialogContext,
+                                                    false,
+                                                  ),
+                                                  child: const Text(
+                                                    'Cancelar',
+                                                  ),
+                                                ),
+                                                ElevatedButton(
+                                                  style: ElevatedButton
+                                                      .styleFrom(
+                                                    backgroundColor:
+                                                        Colors.red,
+                                                  ),
+                                                  onPressed: () =>
+                                                      Navigator.pop(
+                                                    dialogContext,
+                                                    true,
+                                                  ),
+                                                  child: const Text(
+                                                    'Sí, eliminar',
+                                                    style: TextStyle(
+                                                      color: Colors.white,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            );
+                                          },
+                                        );
+
+                                        if (confirmar != true ||
+                                            !mounted ||
+                                            _eliminando) {
+                                          return;
+                                        }
+
+                                        setState(() => _eliminando = true);
+
+                                        try {
+                                          await ClienteController
+                                              .eliminarCliente(c.id);
+                                          if (!mounted) return;
+                                          messenger.showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                'Cliente "${c.nombre}" eliminado correctamente',
+                                              ),
+                                            ),
+                                          );
+                                        } catch (_) {
+                                          if (!mounted) return;
+                                          messenger.showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                'No se pudo eliminar el cliente. Intenta nuevamente.',
+                                              ),
+                                              backgroundColor: Colors.red,
+                                            ),
+                                          );
+                                          return;
+                                        } finally {
+                                          if (mounted) {
+                                            setState(
+                                              () => _eliminando = false,
+                                            );
+                                          }
+                                        }
+
+                                        if (mounted) await cargar();
+                                      },
                               ),
                             ],
                           ),
