@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:accesorios_ayala/views/vista_previa_recibo_view.dart';
 
+import '../controllers/auth_controller.dart';
 import '../utils/theme.dart';
 import 'lista_clientes_view.dart';
 import 'lista_productos_view.dart';
@@ -9,13 +10,87 @@ import 'seleccionar_cliente_view.dart';
 import 'seleccionar_productos_view.dart';
 import 'resumen_ventas_view.dart';
 
-class HomeView extends StatelessWidget {
+class HomeView extends StatefulWidget {
   const HomeView({super.key});
+
+  @override
+  State<HomeView> createState() => _HomeViewState();
+}
+
+class _HomeViewState extends State<HomeView> {
+  bool _cerrandoSesion = false;
+
+  Future<void> _confirmarCerrarSesion(BuildContext context) async {
+    if (_cerrandoSesion) return;
+
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Cerrar sesión'),
+          content: const Text('¿Deseas cerrar tu sesión administrativa?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.red,
+              ),
+              child: const Text('Cerrar sesión'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmar != true || !mounted) return;
+
+    setState(() {
+      _cerrandoSesion = true;
+    });
+
+    try {
+      await AuthController.cerrarSesion();
+    } catch (_) {
+      if (!context.mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No se pudo cerrar la sesión. Intenta nuevamente.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _cerrandoSesion = false;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Accesorios Ayala")),
+      appBar: AppBar(
+        title: const Text("Accesorios Ayala"),
+        actions: [
+          IconButton(
+            icon: const Icon(
+              Icons.logout_rounded,
+              color: Colors.white,
+            ),
+            tooltip: 'Cerrar sesión',
+            onPressed: _cerrandoSesion
+                ? null
+                : () => _confirmarCerrarSesion(context),
+          ),
+        ],
+      ),
       body: Stack(
         children: [
           // Fondo degradado
@@ -106,6 +181,7 @@ class HomeView extends StatelessWidget {
                       );
 
                       if (cliente != null) {
+                        if (!context.mounted) return;
                         final productosSeleccionados = await Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -114,6 +190,7 @@ class HomeView extends StatelessWidget {
                         );
 
                         if (productosSeleccionados != null) {
+                          if (!context.mounted) return;
                           Navigator.push(
                             context,
                             MaterialPageRoute(

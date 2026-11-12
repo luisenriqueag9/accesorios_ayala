@@ -4,12 +4,14 @@ class MisTextfield extends StatelessWidget {
   final TextEditingController controller;
   final String hintText;
   final bool obscureText;
+  final Widget? suffixIcon;
 
   const MisTextfield({
     super.key,
     required this.controller,
     required this.hintText,
     required this.obscureText,
+    this.suffixIcon,
   });
 
   @override
@@ -26,6 +28,7 @@ class MisTextfield extends StatelessWidget {
         hintStyle: TextStyle(
           color: Colors.grey.shade600,
         ),
+        suffixIcon: suffixIcon,
         contentPadding: const EdgeInsets.symmetric(
           vertical: 20,
           horizontal: 20,

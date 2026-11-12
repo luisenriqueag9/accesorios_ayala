@@ -1,46 +1,102 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import '../views/home_view.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class AuthController {
+  static const Set<String> uidsAdminAutorizados = {
+    'sK72fiKvY0crBfUzpP4TuqnHhBE3',
+    'PefdVcw7gRayt1hgCUAZt7ejgYO2',
+  };
+
+  static bool esAdminAutorizado(User? user) {
+    if (user == null) return false;
+    return uidsAdminAutorizados.contains(user.uid);
+  }
+
+  static Future<void> cerrarSesion() async {
+    await FirebaseAuth.instance.signOut();
+  }
+
   final TextEditingController userCtrl = TextEditingController();
   final TextEditingController passCtrl = TextEditingController();
 
-  // Registrar usuario local
+  // Mantiene compatibilidad de compilación con RegisterView sin almacenar
+  // contraseñas locales ni permitir el registro público de usuarios.
   Future<void> registerUser(String user, String pass) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString("user", user);
-    await prefs.setString("pass", pass);
+    // Las cuentas administrativas se gestionan exclusivamente desde Firebase Console.
   }
 
-  // Validar login
+  // Validar e iniciar sesión con Firebase Authentication
   Future<void> login(BuildContext context) async {
-    final prefs = await SharedPreferences.getInstance();
+    final inputEmail = userCtrl.text.trim();
+    final inputPass = passCtrl.text;
 
-    final savedUser = prefs.getString("user");
-    final savedPass = prefs.getString("pass");
-
-    final inputUser = userCtrl.text.trim();
-    final inputPass = passCtrl.text.trim();
-
-    // Si no existe usuario guardado
-    if (savedUser == null || savedPass == null) {
+    if (inputEmail.isEmpty || inputPass.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("No hay usuario registrado")),
+        const SnackBar(
+          content: Text('Por favor, ingresa tu correo electrónico y contraseña.'),
+        ),
       );
       return;
     }
 
-    // Validación
-    if (inputUser == savedUser && inputPass == savedPass) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const HomeView()),
+    try {
+      final credencial = await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: inputEmail,
+        password: inputPass,
       );
-    } else {
+
+      if (!esAdminAutorizado(credencial.user)) {
+        await FirebaseAuth.instance.signOut();
+        if (!context.mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Esta cuenta no tiene permisos administrativos'),
+          ),
+        );
+        return;
+      }
+    } on FirebaseAuthException catch (e) {
+      if (!context.mounted) return;
+
+      final mensaje = _obtenerMensajeErrorAuth(e.code);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Credenciales incorrectas")),
+        SnackBar(content: Text(mensaje)),
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Ocurrió un error inesperado al iniciar sesión. Intenta nuevamente.',
+          ),
+        ),
       );
     }
+  }
+
+  String _obtenerMensajeErrorAuth(String code) {
+    switch (code) {
+      case 'invalid-email':
+        return 'El formato del correo electrónico no es válido.';
+      case 'user-disabled':
+        return 'Esta cuenta ha sido deshabilitada.';
+      case 'user-not-found':
+      case 'wrong-password':
+      case 'invalid-credential':
+        return 'Correo electrónico o contraseña incorrectos.';
+      case 'too-many-requests':
+        return 'Demasiados intentos fallidos. Intenta más tarde.';
+      case 'network-request-failed':
+        return 'Error de conexión. Verifica tu acceso a internet.';
+      default:
+        return 'No se pudo iniciar sesión. Verifica tus credenciales.';
+    }
+  }
+
+  void dispose() {
+    userCtrl.dispose();
+    passCtrl.dispose();
   }
 }

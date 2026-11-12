@@ -20,6 +20,7 @@ dependencies:
   share_plus: ^7.0.0
   font_awesome_flutter: ^10.7.0
   audioplayers: ^5.2.0
+  country_picker: ^2.0.27
 
   # Archivos / imágenes / PDF
   image_picker: ^1.2.1
@@ -33,6 +34,7 @@ dependencies:
   firebase_core: ^3.6.0
   cloud_firestore: ^5.5.0
   firebase_storage: ^12.3.3
+  firebase_auth: ^5.3.1
 
   # Windows
   msix: ^3.16.12
