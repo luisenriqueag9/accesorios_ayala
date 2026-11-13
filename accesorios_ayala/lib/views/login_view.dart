@@ -23,6 +23,23 @@ class _LoginViewState extends State<LoginView> {
   static const Color _bordeSuave = Color(0xFFF0D4D6);
 
   @override
+  void initState() {
+    super.initState();
+    _cargarUltimoCorreo();
+  }
+
+  Future<void> _cargarUltimoCorreo() async {
+    final correoGuardado = await AuthController.obtenerUltimoCorreoGuardado();
+    if (!mounted || correoGuardado == null || correoGuardado.trim().isEmpty) {
+      return;
+    }
+
+    if (_auth.userCtrl.text.isEmpty) {
+      _auth.userCtrl.text = correoGuardado.trim();
+    }
+  }
+
+  @override
   void dispose() {
     _auth.dispose();
     super.dispose();
