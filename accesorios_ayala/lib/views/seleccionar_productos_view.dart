@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../controllers/producto_controller.dart';
 import '../models/producto.dart';
@@ -93,19 +94,26 @@ class _SeleccionarProductosViewState extends State<SeleccionarProductosView> {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.88),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withValues(alpha: seleccionado ? 0.86 : 0.72),
+            Colors.white.withValues(alpha: seleccionado ? 0.70 : 0.54),
+          ],
+        ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: seleccionado
               ? _rojoMarca.withValues(alpha: 0.45)
-              : _bordeSuave,
-          width: seleccionado ? 1.4 : 1.0,
+              : Colors.white.withValues(alpha: 0.85),
+          width: seleccionado ? 1.4 : 1.2,
         ),
         boxShadow: [
           BoxShadow(
-            color: _rojoMarca.withValues(alpha: seleccionado ? 0.06 : 0.03),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: _rojoMarca.withValues(alpha: seleccionado ? 0.08 : 0.04),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
           ),
         ],
       ),
@@ -246,109 +254,192 @@ class _SeleccionarProductosViewState extends State<SeleccionarProductosView> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (widget.integrado) {
-      final totalUnidades = cantidades.values.fold<int>(0, (a, b) => a + b);
+  Widget _construirPanelCristal({required Widget child}) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: _rojoMarca.withValues(alpha: 0.07),
+            blurRadius: 28,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(22),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+          child: Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.white.withValues(alpha: 0.78),
+                  Colors.white.withValues(alpha: 0.56),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(
+                color: _bordeSuave.withValues(alpha: 0.85),
+                width: 1.3,
+              ),
+            ),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
 
-      return Container(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.85),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: _bordeSuave),
-          boxShadow: [
-            BoxShadow(
-              color: _rojoMarca.withValues(alpha: 0.04),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
+  Widget _construirEncabezadoIntegrado(int totalUnidades) {
+    return Wrap(
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 10,
+          runSpacing: 6,
+          children: [
+            const Text(
+              "Seleccionar productos",
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: _negroElegante,
+              ),
+            ),
+            if (totalUnidades > 0)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: _rosaSuave.withValues(alpha: 0.9),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: _bordeSuave),
+                ),
+                child: Text(
+                  "$totalUnidades unidades",
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: _rojoMarca,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            OutlinedButton.icon(
+              onPressed: () => widget.onVolver?.call(),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _grisTexto,
+                backgroundColor: Colors.white.withValues(alpha: 0.75),
+                side: const BorderSide(color: _bordeSuave),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: const Icon(Icons.arrow_back_rounded, size: 18),
+              label: const Text('Volver a Cliente'),
+            ),
+            ElevatedButton.icon(
+              onPressed: finalizarSeleccion,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _rojoMarca,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+              label: const Text('Continuar'),
             ),
           ],
         ),
+      ],
+    );
+  }
+
+  Widget _construirFondoIndependiente() {
+    return Stack(
+      children: [
+        Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFFFFFFFF), Color(0xFFFFF4F5), Color(0xFFFFE6E8)],
+              stops: [0.0, 0.55, 1.0],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
+        Positioned(
+          top: -70,
+          right: -50,
+          child: Container(
+            width: 240,
+            height: 240,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  _rojoMarca.withValues(alpha: 0.12),
+                  _rojoMarca.withValues(alpha: 0.0),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          bottom: -90,
+          left: -60,
+          child: Container(
+            width: 280,
+            height: 280,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  _rojoMarca.withValues(alpha: 0.10),
+                  _rojoMarca.withValues(alpha: 0.0),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final totalUnidades = cantidades.values.fold<int>(0, (a, b) => a + b);
+
+    if (widget.integrado) {
+      return _construirPanelCristal(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Wrap(
-              alignment: WrapAlignment.spaceBetween,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 10,
-                  runSpacing: 6,
-                  children: [
-                    const Text(
-                      "Seleccionar productos",
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: _negroElegante,
-                      ),
-                    ),
-                    if (totalUnidades > 0)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: _rosaSuave,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: _bordeSuave),
-                        ),
-                        child: Text(
-                          "$totalUnidades unidades",
-                          style: const TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
-                            color: _rojoMarca,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: () => widget.onVolver?.call(),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: _grisTexto,
-                        side: const BorderSide(color: _bordeSuave),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      icon: const Icon(Icons.arrow_back_rounded, size: 18),
-                      label: const Text('Volver a Cliente'),
-                    ),
-                    ElevatedButton.icon(
-                      onPressed: finalizarSeleccion,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _rojoMarca,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      icon: const Icon(Icons.arrow_forward_rounded, size: 18),
-                      label: const Text('Continuar'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+            _construirEncabezadoIntegrado(totalUnidades),
             const SizedBox(height: 16),
             _construirLista(shrinkWrap: true),
           ],
@@ -357,16 +448,48 @@ class _SeleccionarProductosViewState extends State<SeleccionarProductosView> {
     }
 
     return Scaffold(
+      backgroundColor: _rosaSuave,
       appBar: AppBar(
-        title: const Text("Seleccionar Productos"),
+        backgroundColor: Colors.white.withValues(alpha: 0.90),
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: _rojoMarca),
+        shape: const Border(bottom: BorderSide(color: _bordeSuave, width: 1)),
+        title: const Text(
+          "Seleccionar Productos",
+          style: TextStyle(
+            color: _rojoMarca,
+            fontSize: 19,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.check),
+            icon: const Icon(Icons.check, color: _rojoMarca),
+            tooltip: 'Continuar',
             onPressed: finalizarSeleccion,
           ),
         ],
       ),
-      body: _construirLista(shrinkWrap: false),
+      body: Stack(
+        children: [
+          _construirFondoIndependiente(),
+          SafeArea(
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.all(16),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 920),
+                  child: _construirPanelCristal(
+                    child: _construirLista(shrinkWrap: true),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
