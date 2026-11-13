@@ -18,6 +18,8 @@ class ListaProductosView extends StatefulWidget {
 class _ListaProductosViewState extends State<ListaProductosView> {
   List<Producto> productos = [];
   List<Producto> productosFiltrados = [];
+  bool _mostrandoFormulario = false;
+  Producto? _productoEnEdicion;
 
   final buscarCtrl = TextEditingController();
 
@@ -37,11 +39,24 @@ class _ListaProductosViewState extends State<ListaProductosView> {
     final cargados = await ProductoController.cargarProductos();
     if (!mounted) return;
     productos = cargados;
-    productosFiltrados = List.from(productos);
+    final consulta = buscarCtrl.text.toLowerCase();
+    productosFiltrados = consulta.isEmpty
+        ? List.from(productos)
+        : productos
+              .where((p) => p.nombre.toLowerCase().contains(consulta))
+              .toList();
     setState(() {});
   }
 
   Future<void> _abrirRegistroProducto([Producto? producto]) async {
+    if (widget.integrado) {
+      setState(() {
+        _productoEnEdicion = producto;
+        _mostrandoFormulario = true;
+      });
+      return;
+    }
+
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -216,6 +231,27 @@ class _ListaProductosViewState extends State<ListaProductosView> {
   @override
   Widget build(BuildContext context) {
     if (widget.integrado) {
+      if (_mostrandoFormulario) {
+        return RegistrarProductoView(
+          key: ValueKey(_productoEnEdicion?.id ?? 'nuevo_producto'),
+          producto: _productoEnEdicion,
+          integrado: true,
+          onCancelar: () {
+            setState(() {
+              _mostrandoFormulario = false;
+              _productoEnEdicion = null;
+            });
+          },
+          onGuardado: () {
+            setState(() {
+              _mostrandoFormulario = false;
+              _productoEnEdicion = null;
+            });
+            cargar();
+          },
+        );
+      }
+
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
