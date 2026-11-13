@@ -13,6 +13,7 @@ class LoginView extends StatefulWidget {
 
 class _LoginViewState extends State<LoginView> {
   final AuthController _auth = AuthController();
+  final FocusNode _passFocusNode = FocusNode();
   bool _iniciandoSesion = false;
   bool _ocultarPassword = true;
 
@@ -41,6 +42,7 @@ class _LoginViewState extends State<LoginView> {
 
   @override
   void dispose() {
+    _passFocusNode.dispose();
     _auth.dispose();
     super.dispose();
   }
@@ -245,12 +247,18 @@ class _LoginViewState extends State<LoginView> {
                               controller: _auth.userCtrl,
                               hintText: 'Correo electrónico',
                               obscureText: false,
+                              keyboardType: TextInputType.emailAddress,
+                              textInputAction: TextInputAction.next,
+                              onSubmitted: (_) => _passFocusNode.requestFocus(),
                             ),
                             const SizedBox(height: 16),
                             MisTextfield(
                               controller: _auth.passCtrl,
+                              focusNode: _passFocusNode,
                               hintText: 'Contraseña',
                               obscureText: _ocultarPassword,
+                              textInputAction: TextInputAction.done,
+                              onSubmitted: (_) => _manejarLogin(),
                               suffixIcon: IconButton(
                                 tooltip: _ocultarPassword
                                     ? 'Mostrar contraseña'

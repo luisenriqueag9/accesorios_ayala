@@ -5,6 +5,10 @@ class MisTextfield extends StatelessWidget {
   final String hintText;
   final bool obscureText;
   final Widget? suffixIcon;
+  final TextInputAction? textInputAction;
+  final TextInputType? keyboardType;
+  final ValueChanged<String>? onSubmitted;
+  final FocusNode? focusNode;
 
   const MisTextfield({
     super.key,
@@ -12,6 +16,10 @@ class MisTextfield extends StatelessWidget {
     required this.hintText,
     required this.obscureText,
     this.suffixIcon,
+    this.textInputAction,
+    this.keyboardType,
+    this.onSubmitted,
+    this.focusNode,
   });
 
   @override
@@ -20,14 +28,16 @@ class MisTextfield extends StatelessWidget {
 
     return TextField(
       controller: controller,
+      focusNode: focusNode,
       obscureText: obscureText,
+      textInputAction: textInputAction,
+      keyboardType: keyboardType,
+      onSubmitted: onSubmitted,
       decoration: InputDecoration(
         filled: true,
         fillColor: Colors.white,
         hintText: hintText,
-        hintStyle: TextStyle(
-          color: Colors.grey.shade600,
-        ),
+        hintStyle: TextStyle(color: Colors.grey.shade600),
         suffixIcon: suffixIcon,
         contentPadding: const EdgeInsets.symmetric(
           vertical: 20,
@@ -39,16 +49,10 @@ class MisTextfield extends StatelessWidget {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(
-            color: theme.colorScheme.primary,
-            width: 2,
-          ),
+          borderSide: BorderSide(color: theme.colorScheme.primary, width: 2),
         ),
       ),
-      style: TextStyle(
-        color: theme.colorScheme.onSurface,
-        fontSize: 16,
-      ),
+      style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 16),
     );
   }
 }
