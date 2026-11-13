@@ -79,6 +79,42 @@ DateTime? _toDateTime(dynamic value) {
 
 const Duration _desfaseHonduras = Duration(hours: 6);
 
+String _removerTildes(String texto) {
+  const mapaTildes = {
+    'á': 'a',
+    'à': 'a',
+    'ä': 'a',
+    'â': 'a',
+    'ã': 'a',
+    'é': 'e',
+    'è': 'e',
+    'ë': 'e',
+    'ê': 'e',
+    'í': 'i',
+    'ì': 'i',
+    'ï': 'i',
+    'î': 'i',
+    'ó': 'o',
+    'ò': 'o',
+    'ö': 'o',
+    'ô': 'o',
+    'õ': 'o',
+    'ú': 'u',
+    'ù': 'u',
+    'ü': 'u',
+    'û': 'u',
+    'ñ': 'n',
+    'ç': 'c',
+  };
+
+  final buffer = StringBuffer();
+  for (final codeUnit in texto.runes) {
+    final char = String.fromCharCode(codeUnit);
+    buffer.write(mapaTildes[char] ?? char);
+  }
+  return buffer.toString();
+}
+
 /// Normaliza un día calendario al mediodía de Honduras (12:00 UTC-6 = 18:00 UTC).
 DateTime _normalizarDiaCalendarioHonduras(DateTime fecha) {
   return DateTime.utc(fecha.year, fecha.month, fecha.day, 18);
@@ -319,6 +355,24 @@ class BorradorFacturaPedido {
 
 /// Modelo principal de un pedido de Accesorios Ayala.
 ///
+/// Convención para [numeroPedido]:
+/// - Identificador legible único e independiente del `id` del documento en
+///   Firestore (por ejemplo `PED-0001`).
+/// - El modelo no genera consecutivos; esa responsabilidad corresponderá al
+///   controlador mediante una transacción de Firestore.
+/// - Documentos antiguos sin este campo se cargan con `''` sin inventar un
+///   consecutivo.
+///
+/// Convención para [keywordsBusqueda]:
+/// - Lista de tokens normalizados (minúsculas, sin tildes ni duplicados)
+///   generados a partir de [numeroPedido], [clienteNombre] y los nombres de los
+///   productos en [items] (sin almacenar datos sensibles como teléfono o
+///   dirección).
+/// - Pensada para consultas de Firestore con `arrayContains`, las cuales buscan
+///   **tokens exactos** y no subcadenas arbitrarias.
+/// - Se recalcula automáticamente en `copyWith` cuando cambian [numeroPedido],
+///   [clienteNombre] o [items] para evitar palabras clave desactualizadas.
+///
 /// Convención para [fechaPrevistaEntrega]:
 /// - Representa un día calendario de Honduras (UTC-6 fijo, sin horario de verano),
 ///   no una hora específica de entrega.
@@ -339,12 +393,14 @@ class BorradorFacturaPedido {
 ///   [Timestamp] como cadenas ISO-8601 o `null`.
 class Pedido {
   final String id;
+  final String numeroPedido;
   final String clienteId;
   final String clienteNombre;
   final String clienteTelefono;
   final String clienteDireccion;
   final String clienteDepartamento;
   final List<PedidoItem> items;
+  final List<String> keywordsBusqueda;
   final EstadoEnvioPedido estadoEnvio;
   final double costoEnvio;
   final BorradorFacturaPedido borradorFactura;
@@ -360,12 +416,14 @@ class Pedido {
 
   Pedido({
     required this.id,
+    this.numeroPedido = '',
     required this.clienteId,
     required this.clienteNombre,
     this.clienteTelefono = '',
     this.clienteDireccion = '',
     this.clienteDepartamento = '',
     List<PedidoItem> items = const [],
+    List<String>? keywordsBusqueda,
     this.estadoEnvio = EstadoEnvioPedido.pendiente,
     this.costoEnvio = 0.0,
     BorradorFacturaPedido? borradorFactura,
@@ -379,6 +437,14 @@ class Pedido {
     this.createdAt,
     this.updatedAt,
   }) : items = List.unmodifiable(items),
+       keywordsBusqueda = List.unmodifiable(
+         keywordsBusqueda ??
+             generarKeywordsBusqueda(
+               numeroPedido: numeroPedido,
+               clienteNombre: clienteNombre,
+               items: items,
+             ),
+       ),
        fechaPrevistaEntrega = fechaPrevistaEntrega != null
            ? _normalizarDiaCalendarioHonduras(fechaPrevistaEntrega)
            : null,
@@ -391,6 +457,51 @@ class Pedido {
         'El costo de envío no puede ser negativo.',
       );
     }
+  }
+
+  /// Normaliza una cadena a minúsculas, sin tildes y sin espacios extremos.
+  static String normalizarTextoBusqueda(String texto) {
+    return _removerTildes(texto.trim().toLowerCase());
+  }
+
+  /// Genera tokens únicos normalizados para búsquedas con `arrayContains` en
+  /// Firestore a partir de [numeroPedido], [clienteNombre] y los nombres de
+  /// [items].
+  ///
+  /// Nota: `arrayContains` en Firestore coincide con tokens exactos de esta
+  /// lista, no con subcadenas arbitrarias.
+  static List<String> generarKeywordsBusqueda({
+    required String numeroPedido,
+    required String clienteNombre,
+    required List<PedidoItem> items,
+  }) {
+    final tokens = <String>{};
+
+    void agregarTexto(String texto, {bool conservarCodigoCompleto = false}) {
+      final normalizado = normalizarTextoBusqueda(texto);
+      if (normalizado.isEmpty) return;
+
+      if (conservarCodigoCompleto) {
+        final codigoCompacto = normalizado.replaceAll(RegExp(r'\s+'), '');
+        if (codigoCompacto.isNotEmpty) {
+          tokens.add(codigoCompacto);
+        }
+      }
+
+      for (final parte in normalizado.split(RegExp(r'[^a-z0-9]+'))) {
+        if (parte.isNotEmpty) {
+          tokens.add(parte);
+        }
+      }
+    }
+
+    agregarTexto(numeroPedido, conservarCodigoCompleto: true);
+    agregarTexto(clienteNombre);
+    for (final item in items) {
+      agregarTexto(item.nombre);
+    }
+
+    return List.unmodifiable(tokens);
   }
 
   /// Estado general de producción derivado automáticamente de [items].
@@ -451,12 +562,14 @@ class Pedido {
 
   Pedido copyWith({
     String? id,
+    String? numeroPedido,
     String? clienteId,
     String? clienteNombre,
     String? clienteTelefono,
     String? clienteDireccion,
     String? clienteDepartamento,
     List<PedidoItem>? items,
+    List<String>? keywordsBusqueda,
     EstadoEnvioPedido? estadoEnvio,
     double? costoEnvio,
     BorradorFacturaPedido? borradorFactura,
@@ -474,14 +587,22 @@ class Pedido {
     DateTime? updatedAt,
   }) {
     final nuevoCostoEnvio = costoEnvio ?? this.costoEnvio;
+    final cambioDatosBusqueda =
+        numeroPedido != null || clienteNombre != null || items != null;
+    final nuevasKeywords =
+        keywordsBusqueda ??
+        (cambioDatosBusqueda ? null : this.keywordsBusqueda);
+
     return Pedido(
       id: id ?? this.id,
+      numeroPedido: numeroPedido ?? this.numeroPedido,
       clienteId: clienteId ?? this.clienteId,
       clienteNombre: clienteNombre ?? this.clienteNombre,
       clienteTelefono: clienteTelefono ?? this.clienteTelefono,
       clienteDireccion: clienteDireccion ?? this.clienteDireccion,
       clienteDepartamento: clienteDepartamento ?? this.clienteDepartamento,
       items: items ?? this.items,
+      keywordsBusqueda: nuevasKeywords,
       estadoEnvio: estadoEnvio ?? this.estadoEnvio,
       costoEnvio: nuevoCostoEnvio,
       borradorFactura:
@@ -514,12 +635,14 @@ class Pedido {
 
     return {
       'id': id,
+      'numeroPedido': numeroPedido,
       'clienteId': clienteId,
       'clienteNombre': clienteNombre,
       'clienteTelefono': clienteTelefono,
       'clienteDireccion': clienteDireccion,
       'clienteDepartamento': clienteDepartamento,
       'items': items.map((item) => item.toMap()).toList(),
+      'keywordsBusqueda': keywordsBusqueda,
       'estadoProduccion': estadoProduccion.valorFirestore,
       'estadoEnvio': estadoEnvio.valorFirestore,
       'costoEnvio': costoEnvio,
@@ -571,14 +694,26 @@ class Pedido {
                 )
               : BorradorFacturaPedido(costoEnvio: costoEnvio));
 
+    final rawKeywords = map['keywordsBusqueda'];
+    List<String>? keywordsParseadas;
+    if (rawKeywords is List) {
+      keywordsParseadas = rawKeywords
+          .map((e) => normalizarTextoBusqueda(e.toString()))
+          .where((e) => e.isNotEmpty)
+          .toSet()
+          .toList();
+    }
+
     return Pedido(
       id: id ?? (map['id'] ?? '').toString(),
+      numeroPedido: (map['numeroPedido'] ?? '').toString(),
       clienteId: (map['clienteId'] ?? '').toString(),
       clienteNombre: (map['clienteNombre'] ?? '').toString(),
       clienteTelefono: (map['clienteTelefono'] ?? '').toString(),
       clienteDireccion: (map['clienteDireccion'] ?? '').toString(),
       clienteDepartamento: (map['clienteDepartamento'] ?? '').toString(),
       items: itemsParseados,
+      keywordsBusqueda: keywordsParseadas,
       estadoEnvio: EstadoEnvioPedido.fromValor(map['estadoEnvio'] as String?),
       costoEnvio: costoEnvio,
       borradorFactura: borrador,

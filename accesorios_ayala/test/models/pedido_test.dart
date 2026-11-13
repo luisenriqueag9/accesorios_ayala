@@ -458,4 +458,224 @@ void main() {
       },
     );
   });
+
+  group('Identificación y palabras clave de búsqueda', () {
+    test('1. Número de pedido es independiente del ID del documento', () {
+      final pedido = Pedido(
+        id: 'doc-firestore-abc123',
+        numeroPedido: 'PED-0001',
+        clienteId: 'cli-1',
+        clienteNombre: 'Ana López',
+      );
+
+      expect(pedido.id, 'doc-firestore-abc123');
+      expect(pedido.numeroPedido, 'PED-0001');
+      expect(pedido.numeroPedido, isNot(pedido.id));
+    });
+
+    test('2. Serializa y deserializa numeroPedido correctamente', () {
+      final pedido = Pedido(
+        id: 'doc-2',
+        numeroPedido: 'PED-0042',
+        clienteId: 'cli-1',
+        clienteNombre: 'Carlos Mejía',
+      );
+
+      final mapa = pedido.toMap();
+      expect(mapa['numeroPedido'], 'PED-0042');
+
+      final reconstruido = Pedido.fromMap(mapa, id: 'doc-2');
+      expect(reconstruido.id, 'doc-2');
+      expect(reconstruido.numeroPedido, 'PED-0042');
+    });
+
+    test('3. Compatibilidad con documentos antiguos sin numeroPedido', () {
+      final mapaAntiguo = {
+        'id': 'doc-antiguo-1',
+        'clienteId': 'cli-1',
+        'clienteNombre': 'Ana López',
+        'items': <Map<String, dynamic>>[],
+      };
+
+      final pedido = Pedido.fromMap(mapaAntiguo);
+      expect(pedido.id, 'doc-antiguo-1');
+      expect(pedido.numeroPedido, '');
+    });
+
+    test(
+      '4. Genera palabras clave desde número, cliente y productos sin datos sensibles',
+      () {
+        final pedido = Pedido(
+          id: 'doc-4',
+          numeroPedido: 'PED-0007',
+          clienteId: 'cli-1',
+          clienteNombre: 'Ana López',
+          clienteTelefono: '9988-7766',
+          clienteDireccion: 'Colonia Kennedy',
+          items: [
+            PedidoItem(
+              itemId: 'l1',
+              productoId: 'p1',
+              nombre: 'Pulsera Dorada',
+              cantidad: 1,
+              precioUnitario: 200.0,
+            ),
+          ],
+        );
+
+        expect(
+          pedido.keywordsBusqueda,
+          containsAll([
+            'ped-0007',
+            'ped',
+            '0007',
+            'ana',
+            'lopez',
+            'pulsera',
+            'dorada',
+          ]),
+        );
+        expect(pedido.keywordsBusqueda, isNot(contains('9988')));
+        expect(pedido.keywordsBusqueda, isNot(contains('kennedy')));
+      },
+    );
+
+    test('5. Normaliza mayúsculas, espacios innecesarios y tildes', () {
+      final pedido = Pedido(
+        id: 'doc-5',
+        numeroPedido: '  PED-0010  ',
+        clienteId: 'cli-2',
+        clienteNombre: '  JOSÉ   ÁNGEL   PEÑA  ',
+        items: [
+          PedidoItem(
+            itemId: 'l1',
+            productoId: 'p1',
+            nombre: '  Collar   Índigo   Único  ',
+            cantidad: 1,
+            precioUnitario: 350.0,
+          ),
+        ],
+      );
+
+      expect(
+        pedido.keywordsBusqueda,
+        containsAll([
+          'ped-0010',
+          'jose',
+          'angel',
+          'pena',
+          'collar',
+          'indigo',
+          'unico',
+        ]),
+      );
+      expect(
+        pedido.keywordsBusqueda.every((k) => k == k.trim().toLowerCase()),
+        isTrue,
+      );
+    });
+
+    test('6. Elimina palabras clave duplicadas', () {
+      final pedido = Pedido(
+        id: 'doc-6',
+        numeroPedido: 'PED-0011',
+        clienteId: 'cli-3',
+        clienteNombre: 'Rosa Rosa',
+        items: [
+          PedidoItem(
+            itemId: 'l1',
+            productoId: 'p1',
+            nombre: 'Pulsera Rosa',
+            cantidad: 1,
+            precioUnitario: 150.0,
+          ),
+          PedidoItem(
+            itemId: 'l2',
+            productoId: 'p2',
+            nombre: 'Arete Rosa',
+            cantidad: 2,
+            precioUnitario: 90.0,
+          ),
+        ],
+      );
+
+      expect(pedido.keywordsBusqueda.where((k) => k == 'rosa').length, 1);
+      expect(
+        pedido.keywordsBusqueda.length,
+        pedido.keywordsBusqueda.toSet().length,
+      );
+    });
+
+    test(
+      '7. Actualiza palabras clave al modificar productos o nombre del cliente',
+      () {
+        final pedidoInicial = Pedido(
+          id: 'doc-7',
+          numeroPedido: 'PED-0015',
+          clienteId: 'cli-1',
+          clienteNombre: 'Ana López',
+          items: [
+            PedidoItem(
+              itemId: 'l1',
+              productoId: 'p1',
+              nombre: 'Pulsera Plata',
+              cantidad: 1,
+              precioUnitario: 200.0,
+            ),
+          ],
+        );
+
+        final conOtroCliente = pedidoInicial.copyWith(
+          clienteNombre: 'María Fernanda',
+        );
+        expect(
+          conOtroCliente.keywordsBusqueda,
+          containsAll(['maria', 'fernanda']),
+        );
+        expect(conOtroCliente.keywordsBusqueda, isNot(contains('ana')));
+        expect(conOtroCliente.keywordsBusqueda, isNot(contains('lopez')));
+
+        final conOtrosProductos = conOtroCliente.copyWith(
+          items: [
+            PedidoItem(
+              itemId: 'l2',
+              productoId: 'p2',
+              nombre: 'Anillo Zafiro',
+              cantidad: 1,
+              precioUnitario: 400.0,
+            ),
+          ],
+        );
+        expect(
+          conOtrosProductos.keywordsBusqueda,
+          containsAll(['ped-0015', 'maria', 'fernanda', 'anillo', 'zafiro']),
+        );
+        expect(conOtrosProductos.keywordsBusqueda, isNot(contains('pulsera')));
+        expect(conOtrosProductos.keywordsBusqueda, isNot(contains('plata')));
+      },
+    );
+
+    test('8. Compatibilidad con documentos antiguos sin keywordsBusqueda', () {
+      final mapaAntiguo = {
+        'id': 'doc-antiguo-2',
+        'clienteId': 'cli-9',
+        'clienteNombre': 'Lucía Méndez',
+        'items': [
+          {
+            'itemId': 'l1',
+            'productoId': 'p1',
+            'nombre': 'Brazalete Oro',
+            'cantidad': 1,
+            'precioUnitario': 500.0,
+          },
+        ],
+      };
+
+      final pedido = Pedido.fromMap(mapaAntiguo);
+      expect(
+        pedido.keywordsBusqueda,
+        containsAll(['lucia', 'mendez', 'brazalete', 'oro']),
+      );
+    });
+  });
 }
