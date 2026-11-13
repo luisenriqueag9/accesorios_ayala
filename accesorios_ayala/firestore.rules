@@ -1,0 +1,218 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAdmin() {
+      return request.auth != null &&
+        request.auth.uid in [
+          'sK72fiKvY0crBfUzpP4TuqnHhBE3',
+          'PefdVcw7gRayt1hgCUAZt7ejgYO2'
+        ];
+    }
+
+    match /productos/{productoId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /clientes/{clienteId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /ventas/{ventaId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /cotizaciones/{cotizacionId} {
+      allow read: if isAdmin();
+
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['estado', 'updatedAt'])
+        && request.resource.data.estado in [
+          'Pendiente',
+          'Contactado',
+          'Confirmado',
+          'Cancelado'
+        ]
+        && request.resource.data.updatedAt == request.time;
+
+      allow delete: if isAdmin();
+      allow create: if false;
+    }
+
+    function formatearNumeroPedido(n) {
+      return n < 10 ? 'PED-000' + string(n)
+        : (n < 100 ? 'PED-00' + string(n)
+        : (n < 1000 ? 'PED-0' + string(n)
+        : 'PED-' + string(n)));
+    }
+
+    function esBorradorFacturaValido(b) {
+      return b is map
+        && b.keys().hasAll([
+          'impuestoPorcentaje',
+          'descuentoMayoristaActivo',
+          'descuentoPorcentaje',
+          'costoEnvio',
+          'subtotalEstimado',
+          'totalEstimado'
+        ])
+        && b.keys().hasOnly([
+          'impuestoPorcentaje',
+          'descuentoMayoristaActivo',
+          'descuentoPorcentaje',
+          'costoEnvio',
+          'subtotalEstimado',
+          'totalEstimado'
+        ])
+        && b.impuestoPorcentaje is number && b.impuestoPorcentaje >= 0
+        && b.descuentoMayoristaActivo is bool
+        && b.descuentoPorcentaje is number
+        && b.descuentoPorcentaje >= 0 && b.descuentoPorcentaje <= 100
+        && b.costoEnvio is number && b.costoEnvio >= 0
+        && b.subtotalEstimado is number && b.subtotalEstimado >= 0
+        && b.totalEstimado is number && b.totalEstimado >= 0;
+    }
+
+    function esPedidoNuevoValido(data, pedidoId) {
+      return data.keys().hasAll([
+          'id',
+          'numeroPedido',
+          'clienteId',
+          'clienteNombre',
+          'clienteTelefono',
+          'clienteDireccion',
+          'clienteDepartamento',
+          'items',
+          'keywordsBusqueda',
+          'estadoProduccion',
+          'estadoEnvio',
+          'costoEnvio',
+          'borradorFactura',
+          'facturado',
+          'ventaId',
+          'facturaNumero',
+          'fechaPrevistaEntrega',
+          'fechaEnvio',
+          'fechaEntrega',
+          'fechaFacturacion',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id',
+          'numeroPedido',
+          'clienteId',
+          'clienteNombre',
+          'clienteTelefono',
+          'clienteDireccion',
+          'clienteDepartamento',
+          'items',
+          'keywordsBusqueda',
+          'estadoProduccion',
+          'estadoEnvio',
+          'costoEnvio',
+          'borradorFactura',
+          'facturado',
+          'ventaId',
+          'facturaNumero',
+          'fechaPrevistaEntrega',
+          'fechaEnvio',
+          'fechaEntrega',
+          'fechaFacturacion',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.id is string && data.id == pedidoId
+        && data.numeroPedido is string && data.numeroPedido.size() > 0
+        && data.clienteId is string && data.clienteId.size() > 0
+        && data.clienteNombre is string && data.clienteNombre.size() > 0
+        && data.clienteTelefono is string
+        && data.clienteDireccion is string
+        && data.clienteDepartamento is string
+        && data.items is list && data.items.size() > 0
+        && data.keywordsBusqueda is list
+        && data.estadoProduccion in ['recibido', 'en_proceso', 'terminado']
+        && data.estadoEnvio in ['pendiente', 'enviado', 'entregado']
+        && data.costoEnvio is number && data.costoEnvio >= 0
+        && esBorradorFacturaValido(data.borradorFactura)
+        && data.facturado == false
+        && data.ventaId == null
+        && data.facturaNumero == null
+        && (data.fechaPrevistaEntrega == null || data.fechaPrevistaEntrega is timestamp)
+        && (data.fechaEnvio == null || data.fechaEnvio is timestamp)
+        && (data.fechaEntrega == null || data.fechaEntrega is timestamp)
+        && data.fechaFacturacion == null
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    match /contadores/pedidos {
+      allow read: if isAdmin();
+
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasAll([
+          'ultimoNumero',
+          'ultimoPedidoId',
+          'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'ultimoNumero',
+          'ultimoPedidoId',
+          'updatedAt'
+        ])
+        && request.resource.data.ultimoNumero == 1
+        && request.resource.data.ultimoPedidoId is string
+        && request.resource.data.ultimoPedidoId.size() > 0
+        && request.resource.data.updatedAt == request.time
+        && !exists(/databases/$(database)/documents/pedidos/$(request.resource.data.ultimoPedidoId))
+        && existsAfter(/databases/$(database)/documents/pedidos/$(request.resource.data.ultimoPedidoId))
+        && getAfter(/databases/$(database)/documents/pedidos/$(request.resource.data.ultimoPedidoId)).data.numeroPedido == 'PED-0001';
+
+      allow update: if isAdmin()
+        && request.resource.data.keys().hasAll([
+          'ultimoNumero',
+          'ultimoPedidoId',
+          'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'ultimoNumero',
+          'ultimoPedidoId',
+          'updatedAt'
+        ])
+        && resource.data.ultimoNumero is int
+        && request.resource.data.ultimoNumero is int
+        && request.resource.data.ultimoNumero == resource.data.ultimoNumero + 1
+        && request.resource.data.ultimoPedidoId is string
+        && request.resource.data.ultimoPedidoId.size() > 0
+        && request.resource.data.ultimoPedidoId != resource.data.ultimoPedidoId
+        && request.resource.data.updatedAt == request.time
+        && !exists(/databases/$(database)/documents/pedidos/$(request.resource.data.ultimoPedidoId))
+        && existsAfter(/databases/$(database)/documents/pedidos/$(request.resource.data.ultimoPedidoId))
+        && getAfter(/databases/$(database)/documents/pedidos/$(request.resource.data.ultimoPedidoId)).data.numeroPedido == formatearNumeroPedido(request.resource.data.ultimoNumero);
+
+      allow delete: if false;
+    }
+
+    match /pedidos/{pedidoId} {
+      allow read: if isAdmin();
+
+      allow create: if isAdmin()
+        && esPedidoNuevoValido(request.resource.data, pedidoId)
+        && existsAfter(/databases/$(database)/documents/contadores/pedidos)
+        && getAfter(/databases/$(database)/documents/contadores/pedidos).data.ultimoPedidoId == pedidoId
+        && getAfter(/databases/$(database)/documents/contadores/pedidos).data.updatedAt == request.time
+        && request.resource.data.numeroPedido == formatearNumeroPedido(
+          getAfter(/databases/$(database)/documents/contadores/pedidos).data.ultimoNumero
+        );
+
+      allow update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
