@@ -175,10 +175,11 @@ class _HomeViewState extends State<HomeView> {
         }
         return;
       case _AccionMenu.clientes:
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const ListaClientesView()),
-        );
+        if (_seccionActiva != _AccionMenu.clientes) {
+          setState(() {
+            _seccionActiva = _AccionMenu.clientes;
+          });
+        }
         return;
       case _AccionMenu.cerrarSesion:
         _confirmarCerrarSesion(context);
@@ -362,6 +363,8 @@ class _HomeViewState extends State<HomeView> {
                             const ResumenVentasView(integrado: true)
                           else if (_seccionActiva == _AccionMenu.productos)
                             const ListaProductosView(integrado: true)
+                          else if (_seccionActiva == _AccionMenu.clientes)
+                            const ListaClientesView(integrado: true)
                           else ...[
                             _construirEncabezadoBienvenida(
                               esEscritorio: esEscritorio,
