@@ -22,6 +22,8 @@ class _ListaClientesViewState extends State<ListaClientesView> {
   String departamentoSeleccionado = "Todos";
   String busqueda = "";
   bool _eliminando = false;
+  bool _mostrandoFormulario = false;
+  Cliente? _clienteEnEdicion;
 
   final List<String> departamentos = [
     "Todos",
@@ -59,6 +61,14 @@ class _ListaClientesViewState extends State<ListaClientesView> {
   }
 
   Future<void> _abrirRegistrarCliente([Cliente? cliente]) async {
+    if (widget.integrado) {
+      setState(() {
+        _clienteEnEdicion = cliente;
+        _mostrandoFormulario = true;
+      });
+      return;
+    }
+
     await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => RegistrarClienteView(cliente: cliente)),
@@ -320,6 +330,27 @@ class _ListaClientesViewState extends State<ListaClientesView> {
   @override
   Widget build(BuildContext context) {
     if (widget.integrado) {
+      if (_mostrandoFormulario) {
+        return RegistrarClienteView(
+          key: ValueKey(_clienteEnEdicion?.id ?? 'nuevo_cliente'),
+          cliente: _clienteEnEdicion,
+          integrado: true,
+          onCancelar: () {
+            setState(() {
+              _mostrandoFormulario = false;
+              _clienteEnEdicion = null;
+            });
+          },
+          onGuardado: () {
+            setState(() {
+              _mostrandoFormulario = false;
+              _clienteEnEdicion = null;
+            });
+            cargar();
+          },
+        );
+      }
+
       final hayFiltroDepartamento = departamentoSeleccionado != "Todos";
 
       return Column(
