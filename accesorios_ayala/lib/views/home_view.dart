@@ -1,4 +1,5 @@
 import 'dart:ui';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:accesorios_ayala/views/vista_previa_recibo_view.dart';
 
@@ -9,6 +10,20 @@ import 'seleccionar_cliente_view.dart';
 import 'seleccionar_productos_view.dart';
 import 'resumen_ventas_view.dart';
 
+enum _AccionMenu { inicio, productos, recibos, ventas, clientes, cerrarSesion }
+
+class _OpcionMenu {
+  final _AccionMenu accion;
+  final String etiqueta;
+  final IconData icono;
+
+  const _OpcionMenu({
+    required this.accion,
+    required this.etiqueta,
+    required this.icono,
+  });
+}
+
 class HomeView extends StatefulWidget {
   const HomeView({super.key});
 
@@ -17,6 +32,7 @@ class HomeView extends StatefulWidget {
 }
 
 class _HomeViewState extends State<HomeView> {
+  static const double _breakpointMenuEscritorio = 1040;
   static const Color _rojoMarca = Color(0xFFD9232E);
   static const Color _rosaSuave = Color(0xFFFFF1F2);
   static const Color _fondoClaro = Color(0xFFFAFAFA);
@@ -24,7 +40,36 @@ class _HomeViewState extends State<HomeView> {
   static const Color _grisTexto = Color(0xFF6E6566);
   static const Color _bordeSuave = Color(0xFFF0DDE0);
 
+  static const List<_OpcionMenu> _opcionesNavegacion = [
+    _OpcionMenu(
+      accion: _AccionMenu.inicio,
+      etiqueta: 'Inicio',
+      icono: Icons.home_outlined,
+    ),
+    _OpcionMenu(
+      accion: _AccionMenu.productos,
+      etiqueta: 'Productos',
+      icono: Icons.shopping_bag_outlined,
+    ),
+    _OpcionMenu(
+      accion: _AccionMenu.recibos,
+      etiqueta: 'Recibos',
+      icono: Icons.receipt_long_outlined,
+    ),
+    _OpcionMenu(
+      accion: _AccionMenu.ventas,
+      etiqueta: 'Ventas',
+      icono: Icons.bar_chart_rounded,
+    ),
+    _OpcionMenu(
+      accion: _AccionMenu.clientes,
+      etiqueta: 'Clientes',
+      icono: Icons.people_outline_rounded,
+    ),
+  ];
+
   bool _cerrandoSesion = false;
+  _AccionMenu _seccionActiva = _AccionMenu.inicio;
 
   Future<void> _confirmarCerrarSesion(BuildContext context) async {
     if (_cerrandoSesion) return;
@@ -103,8 +148,55 @@ class _HomeViewState extends State<HomeView> {
     }
   }
 
+  void _manejarAccionMenu(_AccionMenu accion, BuildContext context) {
+    switch (accion) {
+      case _AccionMenu.inicio:
+        if (_seccionActiva != _AccionMenu.inicio) {
+          setState(() {
+            _seccionActiva = _AccionMenu.inicio;
+          });
+        }
+        return;
+      case _AccionMenu.productos:
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ListaProductosView()),
+        );
+        return;
+      case _AccionMenu.recibos:
+        _abrirGenerarRecibo(context);
+        return;
+      case _AccionMenu.ventas:
+        if (_seccionActiva != _AccionMenu.ventas) {
+          setState(() {
+            _seccionActiva = _AccionMenu.ventas;
+          });
+        }
+        return;
+      case _AccionMenu.clientes:
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ListaClientesView()),
+        );
+        return;
+      case _AccionMenu.cerrarSesion:
+        _confirmarCerrarSesion(context);
+        return;
+    }
+  }
+
+  String? _obtenerCorreoActivo() {
+    final correo = FirebaseAuth.instance.currentUser?.email?.trim();
+    if (correo == null || correo.isEmpty) return null;
+    return correo;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final anchoVentana = MediaQuery.sizeOf(context).width;
+    final esMenuEscritorio = anchoVentana >= _breakpointMenuEscritorio;
+    final correoActivo = _obtenerCorreoActivo();
+
     return Scaffold(
       backgroundColor: _fondoClaro,
       appBar: AppBar(
@@ -113,33 +205,124 @@ class _HomeViewState extends State<HomeView> {
         elevation: 0,
         iconTheme: const IconThemeData(color: _rojoMarca),
         shape: const Border(bottom: BorderSide(color: _bordeSuave, width: 1)),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.diamond_outlined, color: _rojoMarca, size: 22),
-            SizedBox(width: 10),
-            Text(
-              'Accesorios Ayala',
-              style: TextStyle(
-                color: _rojoMarca,
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.2,
+            const Icon(Icons.diamond_outlined, color: _rojoMarca, size: 22),
+            const SizedBox(width: 10),
+            if (esMenuEscritorio) ...[
+              const Text(
+                'Accesorios Ayala',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: _rojoMarca,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.2,
+                ),
               ),
-            ),
+              const SizedBox(width: 28),
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: _opcionesNavegacion
+                        .map(
+                          (opcion) => Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: _construirBotonMenuEscritorio(
+                              opcion: opcion,
+                              context: context,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ),
+              ),
+            ] else
+              const Flexible(
+                child: Text(
+                  'Accesorios Ayala',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: _rojoMarca,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ),
           ],
         ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: IconButton(
-              icon: const Icon(Icons.logout_rounded, color: _rojoMarca),
-              tooltip: 'Cerrar sesión',
-              onPressed: _cerrandoSesion
-                  ? null
-                  : () => _confirmarCerrarSesion(context),
-            ),
-          ),
-        ],
+        actions: esMenuEscritorio
+            ? [
+                if (correoActivo != null) ...[
+                  Center(
+                    child: Tooltip(
+                      message: correoActivo,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 220),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _rosaSuave.withValues(alpha: 0.75),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: _bordeSuave),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.person_outline_rounded,
+                                size: 15,
+                                color: _rojoMarca,
+                              ),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  correoActivo,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 12.5,
+                                    color: _grisTexto,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: IconButton(
+                    icon: const Icon(Icons.logout_rounded, color: _rojoMarca),
+                    tooltip: 'Cerrar sesión',
+                    onPressed: _cerrandoSesion
+                        ? null
+                        : () => _confirmarCerrarSesion(context),
+                  ),
+                ),
+              ]
+            : [
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: _construirMenuMovil(
+                    context: context,
+                    correoActivo: correoActivo,
+                  ),
+                ),
+              ],
       ),
       body: Stack(
         children: [
@@ -174,99 +357,14 @@ class _HomeViewState extends State<HomeView> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _construirEncabezadoBienvenida(
-                            esEscritorio: esEscritorio,
-                          ),
-                          const SizedBox(height: 28),
-
-                          // Sección 1: Catálogo
-                          _construirTituloSeccion(
-                            titulo: 'Catálogo',
-                            icono: Icons.storefront_outlined,
-                          ),
-                          const SizedBox(height: 12),
-                          _construirGrupoTarjetas(
-                            esEscritorio: esEscritorio,
-                            tarjetas: [
-                              _DashboardCard(
-                                titulo: 'Gestión de Productos',
-                                subtitulo:
-                                    'Agrega, edita o elimina artículos y fotografías del catálogo.',
-                                icono: Icons.shopping_bag_outlined,
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          const ListaProductosView(),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 26),
-
-                          // Sección 2: Pedidos y Ventas
-                          _construirTituloSeccion(
-                            titulo: 'Pedidos y Ventas',
-                            icono: Icons.point_of_sale_outlined,
-                          ),
-                          const SizedBox(height: 12),
-                          _construirGrupoTarjetas(
-                            esEscritorio: esEscritorio,
-                            tarjetas: [
-                              _DashboardCard(
-                                titulo: 'Generar Recibo',
-                                subtitulo:
-                                    'Selecciona cliente y productos para emitir un comprobante PDF.',
-                                icono: Icons.receipt_long_outlined,
-                                onTap: () => _abrirGenerarRecibo(context),
-                              ),
-                              _DashboardCard(
-                                titulo: 'Ventas',
-                                subtitulo:
-                                    'Consulta el resumen diario, mensual y el historial de ventas.',
-                                icono: Icons.bar_chart_rounded,
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => const ResumenVentasView(),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 26),
-
-                          // Sección 3: Administración
-                          _construirTituloSeccion(
-                            titulo: 'Administración',
-                            icono: Icons.admin_panel_settings_outlined,
-                          ),
-                          const SizedBox(height: 12),
-                          _construirGrupoTarjetas(
-                            esEscritorio: esEscritorio,
-                            tarjetas: [
-                              _DashboardCard(
-                                titulo: 'Gestión de Clientes',
-                                subtitulo:
-                                    'Administra datos de contacto, departamentos y WhatsApp.',
-                                icono: Icons.people_outline_rounded,
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => const ListaClientesView(),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
+                          if (_seccionActiva == _AccionMenu.ventas)
+                            const ResumenVentasView(integrado: true)
+                          else ...[
+                            _construirEncabezadoBienvenida(
+                              esEscritorio: esEscritorio,
+                            ),
+                            const SizedBox(height: 16),
+                          ],
                         ],
                       ),
                     ),
@@ -277,6 +375,135 @@ class _HomeViewState extends State<HomeView> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _construirBotonMenuEscritorio({
+    required _OpcionMenu opcion,
+    required BuildContext context,
+  }) {
+    final estaActiva = opcion.accion == _seccionActiva;
+
+    return TextButton.icon(
+      onPressed: () => _manejarAccionMenu(opcion.accion, context),
+      icon: Icon(
+        opcion.icono,
+        size: 18,
+        color: estaActiva ? _rojoMarca : _grisTexto,
+      ),
+      label: Text(
+        opcion.etiqueta,
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: estaActiva ? FontWeight.w700 : FontWeight.w600,
+          color: estaActiva ? _rojoMarca : _negroElegante,
+        ),
+      ),
+      style: TextButton.styleFrom(
+        backgroundColor: estaActiva ? _rosaSuave : Colors.transparent,
+        foregroundColor: _rojoMarca,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(
+            color: estaActiva ? _bordeSuave : Colors.transparent,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _construirMenuMovil({
+    required BuildContext context,
+    required String? correoActivo,
+  }) {
+    return PopupMenuButton<_AccionMenu>(
+      icon: const Icon(Icons.more_vert_rounded, color: _rojoMarca),
+      tooltip: 'Menú administrativo',
+      color: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: const BorderSide(color: _bordeSuave),
+      ),
+      onSelected: (accion) => _manejarAccionMenu(accion, context),
+      itemBuilder: (_) => [
+        if (correoActivo != null) ...[
+          PopupMenuItem<_AccionMenu>(
+            enabled: false,
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.person_outline_rounded,
+                  size: 18,
+                  color: _rojoMarca,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    correoActivo,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      color: _grisTexto,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const PopupMenuDivider(),
+        ],
+        ..._opcionesNavegacion.map((opcion) {
+          final estaActiva = opcion.accion == _seccionActiva;
+          return PopupMenuItem<_AccionMenu>(
+            value: opcion.accion,
+            child: Row(
+              children: [
+                Icon(
+                  opcion.icono,
+                  size: 19,
+                  color: estaActiva ? _rojoMarca : _grisTexto,
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  opcion.etiqueta,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: estaActiva ? FontWeight.w700 : FontWeight.w500,
+                    color: estaActiva ? _rojoMarca : _negroElegante,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
+        const PopupMenuDivider(),
+        PopupMenuItem<_AccionMenu>(
+          value: _AccionMenu.cerrarSesion,
+          enabled: !_cerrandoSesion,
+          child: Row(
+            children: [
+              Icon(
+                Icons.logout_rounded,
+                size: 19,
+                color: _cerrandoSesion ? _grisTexto : _rojoMarca,
+              ),
+              const SizedBox(width: 12),
+              Text(
+                _cerrandoSesion ? 'Cerrando sesión...' : 'Cerrar sesión',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: _cerrandoSesion ? _grisTexto : _rojoMarca,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -345,181 +572,6 @@ class _HomeViewState extends State<HomeView> {
                 ),
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _construirTituloSeccion({
-    required String titulo,
-    required IconData icono,
-  }) {
-    return Row(
-      children: [
-        Icon(icono, size: 19, color: _rojoMarca),
-        const SizedBox(width: 8),
-        Text(
-          titulo,
-          style: const TextStyle(
-            fontSize: 15.5,
-            fontWeight: FontWeight.w800,
-            color: _negroElegante,
-            letterSpacing: 0.2,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _construirGrupoTarjetas({
-    required bool esEscritorio,
-    required List<Widget> tarjetas,
-  }) {
-    if (!esEscritorio || tarjetas.length == 1) {
-      return Column(
-        children: [
-          for (int i = 0; i < tarjetas.length; i++) ...[
-            if (i > 0) const SizedBox(height: 14),
-            tarjetas[i],
-          ],
-        ],
-      );
-    }
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        const separacion = 16.0;
-        final anchoTarjeta = (constraints.maxWidth - separacion) / 2;
-        return Wrap(
-          spacing: separacion,
-          runSpacing: separacion,
-          children: tarjetas
-              .map((tarjeta) => SizedBox(width: anchoTarjeta, child: tarjeta))
-              .toList(),
-        );
-      },
-    );
-  }
-}
-
-class _DashboardCard extends StatefulWidget {
-  final String titulo;
-  final String subtitulo;
-  final IconData icono;
-  final VoidCallback onTap;
-
-  const _DashboardCard({
-    required this.titulo,
-    required this.subtitulo,
-    required this.icono,
-    required this.onTap,
-  });
-
-  @override
-  State<_DashboardCard> createState() => _DashboardCardState();
-}
-
-class _DashboardCardState extends State<_DashboardCard> {
-  static const Color _rojoMarca = Color(0xFFD9232E);
-  static const Color _rosaSuave = Color(0xFFFFF1F2);
-  static const Color _negroElegante = Color(0xFF202020);
-  static const Color _grisTexto = Color(0xFF6E6566);
-  static const Color _bordeSuave = Color(0xFFF0DDE0);
-
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
-        transform: Matrix4.translationValues(0, _hover ? -2 : 0, 0),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: _hover
-                  ? _rojoMarca.withValues(alpha: 0.10)
-                  : _negroElegante.withValues(alpha: 0.04),
-              blurRadius: _hover ? 20 : 12,
-              offset: Offset(0, _hover ? 8 : 4),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-            child: Material(
-              color: Colors.white.withValues(alpha: _hover ? 0.92 : 0.80),
-              child: InkWell(
-                onTap: widget.onTap,
-                borderRadius: BorderRadius.circular(20),
-                child: Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: _hover
-                          ? _rojoMarca.withValues(alpha: 0.35)
-                          : _bordeSuave,
-                      width: 1.1,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: _rosaSuave,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: _bordeSuave),
-                        ),
-                        child: Icon(widget.icono, color: _rojoMarca, size: 24),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              widget.titulo,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                color: _negroElegante,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              widget.subtitulo,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                color: _grisTexto,
-                                height: 1.35,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Icon(
-                        Icons.chevron_right_rounded,
-                        color: _hover ? _rojoMarca : _grisTexto,
-                        size: 22,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
           ),
         ),
       ),
