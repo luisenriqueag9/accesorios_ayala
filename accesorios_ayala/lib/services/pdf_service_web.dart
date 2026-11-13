@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'package:flutter/services.dart';
@@ -15,10 +13,17 @@ class PdfWebService {
     required Cliente cliente,
     required List<Map<String, dynamic>> seleccionados,
     required double impuestoPorcentaje,
+    double envio = 0.0,
+    String? facturaNumero,
+    DateTime? fechaEmision,
   }) async {
     final pdf = pw.Document();
-    final fecha = DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now());
-    final facturaNo = DateTime.now().millisecondsSinceEpoch.toString();
+    final fecha = DateFormat(
+      'dd/MM/yyyy HH:mm',
+    ).format(fechaEmision ?? DateTime.now());
+    final facturaNo = (facturaNumero != null && facturaNumero.isNotEmpty)
+        ? facturaNumero
+        : DateTime.now().millisecondsSinceEpoch.toString();
 
     double subtotal = 0;
     for (var item in seleccionados) {
@@ -27,8 +32,9 @@ class PdfWebService {
       subtotal += p.precio * c;
     }
 
+    final envioSeguro = envio < 0 ? 0.0 : envio;
     final impuesto = subtotal * (impuestoPorcentaje / 100);
-    final total = subtotal + impuesto;
+    final total = subtotal + impuesto + envioSeguro;
 
     // ✅ LOGO CORRECTO (ruta real)
     final logoBytes = await rootBundle.load('assets/logo/logo_ayala.png');
@@ -225,6 +231,9 @@ class PdfWebService {
                       pw.Text('Subtotal: Lps ${subtotal.toStringAsFixed(2)}'),
                       pw.Text(
                         'ISV (${impuestoPorcentaje.toStringAsFixed(0)}%): Lps ${impuesto.toStringAsFixed(2)}',
+                      ),
+                      pw.Text(
+                        'Costo de envío: Lps ${envioSeguro.toStringAsFixed(2)}',
                       ),
                       pw.Divider(),
                       pw.Text(
