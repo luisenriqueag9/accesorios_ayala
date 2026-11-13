@@ -14,6 +14,8 @@ class PdfWebService {
     required List<Map<String, dynamic>> seleccionados,
     required double impuestoPorcentaje,
     double envio = 0.0,
+    bool descuentoMayoristaActivo = false,
+    double descuentoPorcentaje = 0.0,
     String? facturaNumero,
     DateTime? fechaEmision,
   }) async {
@@ -33,8 +35,17 @@ class PdfWebService {
     }
 
     final envioSeguro = envio < 0 ? 0.0 : envio;
-    final impuesto = subtotal * (impuestoPorcentaje / 100);
-    final total = subtotal + impuesto + envioSeguro;
+    final descuentoPorcentajeSeguro = !descuentoMayoristaActivo
+        ? 0.0
+        : (descuentoPorcentaje < 0
+              ? 0.0
+              : (descuentoPorcentaje > 100 ? 100.0 : descuentoPorcentaje));
+    final descuentoMonto = descuentoMayoristaActivo
+        ? subtotal * (descuentoPorcentajeSeguro / 100)
+        : 0.0;
+    final baseImponible = subtotal - descuentoMonto;
+    final impuesto = baseImponible * (impuestoPorcentaje / 100);
+    final total = baseImponible + impuesto + envioSeguro;
 
     // ✅ LOGO CORRECTO (ruta real)
     final logoBytes = await rootBundle.load('assets/logo/logo_ayala.png');
@@ -229,6 +240,10 @@ class PdfWebService {
                     crossAxisAlignment: pw.CrossAxisAlignment.end,
                     children: [
                       pw.Text('Subtotal: Lps ${subtotal.toStringAsFixed(2)}'),
+                      if (descuentoMayoristaActivo)
+                        pw.Text(
+                          'Descuento mayorista (${descuentoPorcentajeSeguro.toStringAsFixed(descuentoPorcentajeSeguro % 1 == 0 ? 0 : 2)}%): - Lps ${descuentoMonto.toStringAsFixed(2)}',
+                        ),
                       pw.Text(
                         'ISV (${impuestoPorcentaje.toStringAsFixed(0)}%): Lps ${impuesto.toStringAsFixed(2)}',
                       ),

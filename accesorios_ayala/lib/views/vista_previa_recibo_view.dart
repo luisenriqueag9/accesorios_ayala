@@ -32,7 +32,9 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
 
   final impuestoCtrl = TextEditingController(text: "0");
   final envioCtrl = TextEditingController(text: "120.00");
+  final descuentoCtrl = TextEditingController(text: "20");
 
+  bool _descuentoMayoristaActivo = false;
   bool _procesandoPdf = false;
   bool _ventaGuardada = false;
   String? _facturaId;
@@ -43,7 +45,18 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
   void dispose() {
     impuestoCtrl.dispose();
     envioCtrl.dispose();
+    descuentoCtrl.dispose();
     super.dispose();
+  }
+
+  double _parsearDescuentoPorcentaje() {
+    if (!_descuentoMayoristaActivo) return 0.0;
+    final texto = descuentoCtrl.text.trim().replaceAll(',', '.');
+    if (texto.isEmpty) return 0.0;
+    final valor = double.tryParse(texto) ?? 0.0;
+    if (valor < 0) return 0.0;
+    if (valor > 100) return 100.0;
+    return valor;
   }
 
   double _parsearEnvio() {
@@ -66,14 +79,19 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
   @override
   Widget build(BuildContext context) {
     final subtotal = calcularSubtotal();
+    final descuentoPorcentaje = _parsearDescuentoPorcentaje();
+    final descuentoMonto = _descuentoMayoristaActivo
+        ? subtotal * (descuentoPorcentaje / 100)
+        : 0.0;
+    final baseImponible = subtotal - descuentoMonto;
 
     final impuestoPorcentaje =
         double.tryParse(impuestoCtrl.text.isEmpty ? "0" : impuestoCtrl.text) ??
         0;
 
-    final impuesto = subtotal * (impuestoPorcentaje / 100);
+    final impuesto = baseImponible * (impuestoPorcentaje / 100);
     final costoEnvio = _parsearEnvio();
-    final total = subtotal + impuesto + costoEnvio;
+    final total = baseImponible + impuesto + costoEnvio;
 
     return Scaffold(
       backgroundColor: _rosaSuave,
@@ -117,6 +135,8 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
                       final seccionResumen = _construirPanelCristal(
                         child: _construirResumenFinanciero(
                           subtotal: subtotal,
+                          descuentoPorcentaje: descuentoPorcentaje,
+                          descuentoMonto: descuentoMonto,
                           impuesto: impuesto,
                           costoEnvio: costoEnvio,
                           total: total,
@@ -126,6 +146,8 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
                       final seccionBotonPdf = _construirBotonDescargar(
                         context: context,
                         subtotal: subtotal,
+                        descuentoPorcentaje: descuentoPorcentaje,
+                        descuentoMonto: descuentoMonto,
                         impuestoPorcentaje: impuestoPorcentaje,
                         impuesto: impuesto,
                         costoEnvio: costoEnvio,
@@ -516,6 +538,8 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
 
   Widget _construirResumenFinanciero({
     required double subtotal,
+    required double descuentoPorcentaje,
+    required double descuentoMonto,
     required double impuesto,
     required double costoEnvio,
     required double total,
@@ -526,6 +550,73 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
         _construirTituloSeccion(Icons.receipt_long_outlined, "Resumen"),
         const SizedBox(height: 14),
         _fila("Subtotal:", subtotal),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Expanded(
+              child: Text(
+                "Descuento mayorista",
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: _grisTexto,
+                ),
+              ),
+            ),
+            Switch(
+              value: _descuentoMayoristaActivo,
+              activeTrackColor: _rojoMarca.withValues(alpha: 0.35),
+              thumbColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return _rojoMarca;
+                }
+                return null;
+              }),
+              onChanged: (_ventaGuardada || _procesandoPdf)
+                  ? null
+                  : (valor) {
+                      setState(() {
+                        _descuentoMayoristaActivo = valor;
+                      });
+                    },
+            ),
+          ],
+        ),
+        if (_descuentoMayoristaActivo) ...[
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                "Descuento mayorista (%):",
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: _grisTexto,
+                ),
+              ),
+              _construirCampoNumerico(
+                controller: descuentoCtrl,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(
+                    RegExp(r'^\d*[.,]?\d{0,2}'),
+                  ),
+                ],
+                width: 92,
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _fila(
+            "Descuento mayorista (${descuentoPorcentaje.toStringAsFixed(descuentoPorcentaje % 1 == 0 ? 0 : 2)}%):",
+            descuentoMonto,
+            prefijo: "- ",
+          ),
+        ],
         const SizedBox(height: 12),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -613,6 +704,8 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
   Widget _construirBotonDescargar({
     required BuildContext context,
     required double subtotal,
+    required double descuentoPorcentaje,
+    required double descuentoMonto,
     required double impuestoPorcentaje,
     required double impuesto,
     required double costoEnvio,
@@ -645,6 +738,8 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
                             seleccionados: widget.seleccionados,
                             impuestoPorcentaje: impuestoPorcentaje,
                             envio: costoEnvio,
+                            descuentoMayoristaActivo: _descuentoMayoristaActivo,
+                            descuentoPorcentaje: descuentoPorcentaje,
                             facturaNumero: _facturaId,
                             fechaEmision: _fechaFactura,
                           );
@@ -659,6 +754,9 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
                           impuesto: impuesto,
                           total: total,
                           envio: costoEnvio,
+                          descuentoMayoristaActivo: _descuentoMayoristaActivo,
+                          descuentoPorcentaje: descuentoPorcentaje,
+                          descuentoMonto: descuentoMonto,
                         );
 
                         await VentaController.guardarVenta(venta);
@@ -746,20 +844,28 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
     );
   }
 
-  Widget _fila(String texto, double valor, {bool bold = false}) {
+  Widget _fila(
+    String texto,
+    double valor, {
+    bool bold = false,
+    String prefijo = '',
+  }) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(
-          texto,
-          style: TextStyle(
-            fontSize: 14,
-            color: bold ? _negroElegante : _grisTexto,
-            fontWeight: bold ? FontWeight.w700 : FontWeight.w600,
+        Expanded(
+          child: Text(
+            texto,
+            style: TextStyle(
+              fontSize: 14,
+              color: bold ? _negroElegante : _grisTexto,
+              fontWeight: bold ? FontWeight.w700 : FontWeight.w600,
+            ),
           ),
         ),
+        const SizedBox(width: 8),
         Text(
-          "Lps ${valor.toStringAsFixed(2)}",
+          "${prefijo}Lps ${valor.toStringAsFixed(2)}",
           style: TextStyle(
             fontSize: 14.5,
             color: _negroElegante,
