@@ -86,20 +86,27 @@ class _SeleccionarProductosViewState extends State<SeleccionarProductosView> {
     }
   }
 
+  void _actualizarCantidad(int index, int delta) {
+    setState(() {
+      final current = cantidades[index] ?? 0;
+      final next = current + delta;
+      cantidades[index] = next < 0 ? 0 : next;
+    });
+  }
+
   Widget _construirTarjetaProducto(int index, Producto p) {
     final cantidad = cantidades[index] ?? 0;
     final seleccionado = cantidad > 0;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            Colors.white.withValues(alpha: seleccionado ? 0.86 : 0.72),
-            Colors.white.withValues(alpha: seleccionado ? 0.70 : 0.54),
+            Colors.white.withValues(alpha: seleccionado ? 0.68 : 0.56),
+            Colors.white.withValues(alpha: seleccionado ? 0.44 : 0.34),
           ],
         ),
         borderRadius: BorderRadius.circular(16),
@@ -111,106 +118,111 @@ class _SeleccionarProductosViewState extends State<SeleccionarProductosView> {
         ),
         boxShadow: [
           BoxShadow(
-            color: _rojoMarca.withValues(alpha: seleccionado ? 0.08 : 0.04),
+            color: _rojoMarca.withValues(alpha: seleccionado ? 0.09 : 0.05),
             blurRadius: 14,
             offset: const Offset(0, 5),
           ),
         ],
       ),
-      child: Row(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: p.imageUrl != null && p.imageUrl!.trim().isNotEmpty
-                ? Image.network(
-                    p.imageUrl!.trim(),
-                    width: 56,
-                    height: 56,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => _iconoPlaceholder(),
-                  )
-                : _iconoPlaceholder(),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  p.nombre,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                    color: _negroElegante,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  "L. ${p.precio.toStringAsFixed(2)}",
-                  style: const TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w600,
-                    color: _grisTexto,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-            decoration: BoxDecoration(
-              color: _rosaSuave,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: _bordeSuave),
-            ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => _actualizarCantidad(index, 1),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
             child: Row(
-              mainAxisSize: MainAxisSize.min,
               children: [
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  icon: const Icon(Icons.remove_rounded, size: 18),
-                  color: cantidad > 0 ? _rojoMarca : _grisTexto,
-                  tooltip: 'Disminuir',
-                  onPressed: () {
-                    setState(() {
-                      final current = cantidades[index] ?? 0;
-                      if (current > 0) {
-                        cantidades[index] = current - 1;
-                      }
-                    });
-                  },
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: p.imageUrl != null && p.imageUrl!.trim().isNotEmpty
+                      ? Image.network(
+                          p.imageUrl!.trim(),
+                          width: 56,
+                          height: 56,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => _iconoPlaceholder(),
+                        )
+                      : _iconoPlaceholder(),
                 ),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(minWidth: 24),
-                  child: Text(
-                    "$cantidad",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                      color: seleccionado ? _rojoMarca : _negroElegante,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        p.nombre,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                          color: _negroElegante,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        "L. ${p.precio.toStringAsFixed(2)}",
+                        style: const TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                          color: _grisTexto,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {},
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _rosaSuave.withValues(alpha: 0.85),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: _bordeSuave),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.remove_rounded, size: 18),
+                          color: cantidad > 0 ? _rojoMarca : _grisTexto,
+                          tooltip: 'Disminuir',
+                          onPressed: () => _actualizarCantidad(index, -1),
+                        ),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(minWidth: 24),
+                          child: Text(
+                            "$cantidad",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: seleccionado ? _rojoMarca : _negroElegante,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.add_rounded, size: 18),
+                          color: _rojoMarca,
+                          tooltip: 'Aumentar',
+                          onPressed: () => _actualizarCantidad(index, 1),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  icon: const Icon(Icons.add_rounded, size: 18),
-                  color: _rojoMarca,
-                  tooltip: 'Aumentar',
-                  onPressed: () {
-                    setState(() {
-                      final current = cantidades[index] ?? 0;
-                      cantidades[index] = current + 1;
-                    });
-                  },
-                ),
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -260,8 +272,8 @@ class _SeleccionarProductosViewState extends State<SeleccionarProductosView> {
         borderRadius: BorderRadius.circular(22),
         boxShadow: [
           BoxShadow(
-            color: _rojoMarca.withValues(alpha: 0.07),
-            blurRadius: 28,
+            color: _rojoMarca.withValues(alpha: 0.10),
+            blurRadius: 30,
             offset: const Offset(0, 12),
           ),
         ],
@@ -269,7 +281,7 @@ class _SeleccionarProductosViewState extends State<SeleccionarProductosView> {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(22),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
           child: Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
@@ -277,14 +289,14 @@ class _SeleccionarProductosViewState extends State<SeleccionarProductosView> {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  Colors.white.withValues(alpha: 0.78),
-                  Colors.white.withValues(alpha: 0.56),
+                  Colors.white.withValues(alpha: 0.52),
+                  Colors.white.withValues(alpha: 0.30),
                 ],
               ),
               borderRadius: BorderRadius.circular(22),
               border: Border.all(
-                color: _bordeSuave.withValues(alpha: 0.85),
-                width: 1.3,
+                color: Colors.white.withValues(alpha: 0.85),
+                width: 1.4,
               ),
             ),
             child: child,
@@ -385,24 +397,24 @@ class _SeleccionarProductosViewState extends State<SeleccionarProductosView> {
         Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFFFFFFFF), Color(0xFFFFF4F5), Color(0xFFFFE6E8)],
-              stops: [0.0, 0.55, 1.0],
+              colors: [Color(0xFFFFFFFF), Color(0xFFFFEDF0), Color(0xFFFFDCE2)],
+              stops: [0.0, 0.52, 1.0],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
           ),
         ),
         Positioned(
-          top: -70,
-          right: -50,
+          top: -80,
+          right: -60,
           child: Container(
-            width: 240,
-            height: 240,
+            width: 320,
+            height: 320,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: RadialGradient(
                 colors: [
-                  _rojoMarca.withValues(alpha: 0.12),
+                  _rojoMarca.withValues(alpha: 0.20),
                   _rojoMarca.withValues(alpha: 0.0),
                 ],
               ),
@@ -410,16 +422,16 @@ class _SeleccionarProductosViewState extends State<SeleccionarProductosView> {
           ),
         ),
         Positioned(
-          bottom: -90,
-          left: -60,
+          bottom: -100,
+          left: -70,
           child: Container(
-            width: 280,
-            height: 280,
+            width: 360,
+            height: 360,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: RadialGradient(
                 colors: [
-                  _rojoMarca.withValues(alpha: 0.10),
+                  _rojoMarca.withValues(alpha: 0.16),
                   _rojoMarca.withValues(alpha: 0.0),
                 ],
               ),
