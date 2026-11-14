@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/pedido.dart';
+import 'nuevo_pedido_view.dart';
 
 enum _SubseccionPedidos {
   resumen,
@@ -208,12 +209,7 @@ class _PedidosViewState extends State<PedidosView> {
             ? _construirTablaEscritorio()
             : _construirListaMovil();
       case _SubseccionPedidos.nuevoPedido:
-        return _construirTarjetaInformativa(
-          icono: Icons.add_circle_outline_rounded,
-          titulo: 'Nuevo pedido',
-          mensaje: 'Aquí podrás registrar nuevos pedidos',
-          esEscritorio: esEscritorio,
-        );
+        return const NuevoPedidoView();
       case _SubseccionPedidos.reportes:
         return _construirTarjetaInformativa(
           icono: Icons.bar_chart_rounded,
