@@ -843,6 +843,62 @@ class _PedidosViewState extends State<PedidosView> {
                   )
                 : pedidoActual;
 
+            void aplicarErrorDeActualizacion({
+              required String mensajeMostrado,
+              required bool necesitaRecarga,
+            }) {
+              setDialogState(() {
+                guardando = false;
+                requiereRecarga = necesitaRecarga;
+                mensajeExito = null;
+                mensajeError = mensajeMostrado;
+                permitirRecargar = necesitaRecarga && !_usaListaExterna;
+              });
+            }
+
+            void manejarExcepcionActualizacion(Object error) {
+              final sufijoListaExterna = _usaListaExterna
+                  ? ' Cierra este detalle y actualiza la lista desde la vista que proporciona los pedidos antes de volver a guardar.'
+                  : '';
+
+              if (error is PedidoControllerException) {
+                String mensajeMostrado;
+                var necesitaRecarga = false;
+                switch (error.tipo) {
+                  case TipoErrorPedido.conflictoConcurrencia:
+                    mensajeMostrado =
+                        'Otro administrador modificó este pedido mientras lo editabas. Recárgalo antes de continuar.$sufijoListaExterna';
+                    necesitaRecarga = true;
+                  case TipoErrorPedido.actualizacionConfirmadaSinRecarga:
+                    mensajeMostrado =
+                        'Los cambios se confirmaron en Firestore, pero no se pudo recuperar la versión actualizada. Recarga el pedido para verificar su estado actual.$sufijoListaExterna';
+                    necesitaRecarga = true;
+                  case TipoErrorPedido.errorConexion:
+                  case TipoErrorPedido.errorTransaccion:
+                    mensajeMostrado =
+                        'No se pudo confirmar si el guardado terminó en Firestore. No se reintentará automáticamente; recarga el pedido para verificar su estado actual.$sufijoListaExterna';
+                    necesitaRecarga = true;
+                  case TipoErrorPedido.datosInvalidos:
+                  case TipoErrorPedido.permisosInsuficientes:
+                  case TipoErrorPedido.pedidoNoEncontrado:
+                  case TipoErrorPedido.pedidoExistente:
+                    mensajeMostrado = error.mensaje;
+                    necesitaRecarga = false;
+                }
+                aplicarErrorDeActualizacion(
+                  mensajeMostrado: mensajeMostrado,
+                  necesitaRecarga: necesitaRecarga,
+                );
+                return;
+              }
+
+              aplicarErrorDeActualizacion(
+                mensajeMostrado:
+                    'Ocurrió un error inesperado y no se pudo confirmar el resultado en Firestore. Recarga el pedido para verificar su estado actual.$sufijoListaExterna',
+                necesitaRecarga: true,
+              );
+            }
+
             Future<void> guardarCambios() async {
               if (guardando ||
                   recargando ||
@@ -894,56 +950,9 @@ class _PedidosViewState extends State<PedidosView> {
                   mensajeError = null;
                   permitirRecargar = false;
                 });
-              } on PedidoControllerException catch (e) {
+              } catch (e) {
                 if (!dialogContext.mounted) return;
-                String mensajeMostrado;
-                var necesitaRecarga = false;
-                final sufijoListaExterna = _usaListaExterna
-                    ? ' Cierra este detalle y actualiza la lista desde la vista que proporciona los pedidos antes de volver a guardar.'
-                    : '';
-
-                switch (e.tipo) {
-                  case TipoErrorPedido.conflictoConcurrencia:
-                    mensajeMostrado =
-                        'Otro administrador modificó este pedido mientras lo editabas. Recárgalo antes de continuar.$sufijoListaExterna';
-                    necesitaRecarga = true;
-                  case TipoErrorPedido.actualizacionConfirmadaSinRecarga:
-                    mensajeMostrado =
-                        'Los cambios se confirmaron en Firestore, pero no se pudo recuperar la versión actualizada. Recarga el pedido para verificar su estado actual.$sufijoListaExterna';
-                    necesitaRecarga = true;
-                  case TipoErrorPedido.errorConexion:
-                  case TipoErrorPedido.errorTransaccion:
-                    mensajeMostrado =
-                        'No se pudo confirmar si el guardado terminó en Firestore. No se reintentará automáticamente; recarga el pedido para verificar su estado actual.$sufijoListaExterna';
-                    necesitaRecarga = true;
-                  case TipoErrorPedido.datosInvalidos:
-                  case TipoErrorPedido.permisosInsuficientes:
-                  case TipoErrorPedido.pedidoNoEncontrado:
-                  case TipoErrorPedido.pedidoExistente:
-                    mensajeMostrado = e.mensaje;
-                    necesitaRecarga = false;
-                }
-
-                setDialogState(() {
-                  guardando = false;
-                  requiereRecarga = necesitaRecarga;
-                  mensajeExito = null;
-                  mensajeError = mensajeMostrado;
-                  permitirRecargar = necesitaRecarga && !_usaListaExterna;
-                });
-              } catch (_) {
-                if (!dialogContext.mounted) return;
-                final sufijoListaExterna = _usaListaExterna
-                    ? ' Cierra este detalle y actualiza la lista desde la vista que proporciona los pedidos antes de volver a guardar.'
-                    : '';
-                setDialogState(() {
-                  guardando = false;
-                  requiereRecarga = true;
-                  mensajeExito = null;
-                  mensajeError =
-                      'Ocurrió un error inesperado y no se pudo confirmar el resultado en Firestore. Recarga el pedido para verificar su estado actual.$sufijoListaExterna';
-                  permitirRecargar = !_usaListaExterna;
-                });
+                manejarExcepcionActualizacion(e);
               }
             }
 
@@ -1000,6 +1009,112 @@ class _PedidosViewState extends State<PedidosView> {
                       'El pedido ya no aparece en Firestore. Cierra este detalle para revisar la lista actualizada.';
                   permitirRecargar = true;
                 });
+              }
+            }
+
+            Future<void> editarFechaEntrega() async {
+              if (guardando ||
+                  recargando ||
+                  requiereRecarga ||
+                  hayCambiosProvisionales ||
+                  pedidoActual.facturado ||
+                  pedidoActual.ventaId != null) {
+                return;
+              }
+
+              final fechaInicial =
+                  pedidoActual.fechaPrevistaEntrega ?? DateTime.now();
+              final seleccionada = await showDatePicker(
+                context: dialogContext,
+                initialDate: fechaInicial,
+                firstDate: DateTime(2000),
+                lastDate: DateTime(2100),
+                helpText: 'Seleccionar fecha prevista de entrega',
+              );
+              if (seleccionada == null || !dialogContext.mounted) return;
+
+              final nuevaFecha = DateTime.utc(
+                seleccionada.year,
+                seleccionada.month,
+                seleccionada.day,
+                18,
+              );
+              final fechaActual = pedidoActual.fechaPrevistaEntrega;
+              final sinCambios =
+                  fechaActual != null &&
+                  fechaActual.year == nuevaFecha.year &&
+                  fechaActual.month == nuevaFecha.month &&
+                  fechaActual.day == nuevaFecha.day;
+              if (sinCambios) return;
+
+              final confirmado = await showDialog<bool>(
+                context: dialogContext,
+                builder: (confirmContext) {
+                  return AlertDialog(
+                    title: const Text('Confirmar nueva fecha de entrega'),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Fecha actual: ${_formatearFecha(pedidoActual.fechaPrevistaEntrega)}',
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Nueva fecha: ${_formatearFecha(nuevaFecha)}',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ],
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(confirmContext).pop(false),
+                        child: const Text('Cancelar'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () => Navigator.of(confirmContext).pop(true),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _rojoMarca,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('Confirmar fecha'),
+                      ),
+                    ],
+                  );
+                },
+              );
+              if (confirmado != true || !dialogContext.mounted) return;
+
+              setDialogState(() {
+                guardando = true;
+                mensajeExito = null;
+                mensajeError = null;
+                permitirRecargar = false;
+              });
+
+              try {
+                final pedidoConfirmado =
+                    await PedidoController.actualizarFechaPrevistaEntrega(
+                      pedidoId: pedidoActual.id,
+                      nuevaFechaPrevistaEntrega: nuevaFecha,
+                      updatedAtEsperado: pedidoActual.updatedAt,
+                    );
+
+                _actualizarPedidoEnLista(pedidoConfirmado);
+                if (!dialogContext.mounted) return;
+
+                setDialogState(() {
+                  pedidoActual = pedidoConfirmado;
+                  guardando = false;
+                  requiereRecarga = false;
+                  mensajeExito =
+                      'Fecha prevista de entrega actualizada correctamente.';
+                  mensajeError = null;
+                  permitirRecargar = false;
+                });
+              } catch (e) {
+                if (!dialogContext.mounted) return;
+                manejarExcepcionActualizacion(e);
               }
             }
 
@@ -1256,9 +1371,27 @@ class _PedidosViewState extends State<PedidosView> {
                                       child: esDialogoEscritorio
                                           ? _construirInfoGeneralEscritorio(
                                               pedidoProvisional,
+                                              onEditarFechaEntrega:
+                                                  !bloqueadoPorOperacion &&
+                                                      !requiereRecarga &&
+                                                      !hayCambiosProvisionales &&
+                                                      !pedidoActual.facturado &&
+                                                      pedidoActual.ventaId ==
+                                                          null
+                                                  ? editarFechaEntrega
+                                                  : null,
                                             )
                                           : _construirInfoGeneralMovil(
                                               pedidoProvisional,
+                                              onEditarFechaEntrega:
+                                                  !bloqueadoPorOperacion &&
+                                                      !requiereRecarga &&
+                                                      !hayCambiosProvisionales &&
+                                                      !pedidoActual.facturado &&
+                                                      pedidoActual.ventaId ==
+                                                          null
+                                                  ? editarFechaEntrega
+                                                  : null,
                                             ),
                                     ),
                                     const SizedBox(height: 12),
@@ -1620,7 +1753,27 @@ class _PedidosViewState extends State<PedidosView> {
     );
   }
 
-  Widget _construirInfoGeneralEscritorio(Pedido pedido) {
+  Widget _construirBotonEditarFechaEntrega(VoidCallback? onEditarFechaEntrega) {
+    return IconButton(
+      onPressed: onEditarFechaEntrega,
+      tooltip: 'Editar fecha de entrega',
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+      icon: Icon(
+        Icons.edit_calendar_outlined,
+        size: 17,
+        color: onEditarFechaEntrega != null
+            ? _rojoMarca
+            : _grisTexto.withValues(alpha: 0.45),
+      ),
+    );
+  }
+
+  Widget _construirInfoGeneralEscritorio(
+    Pedido pedido, {
+    VoidCallback? onEditarFechaEntrega,
+  }) {
     final telefono = pedido.clienteTelefono.trim().isNotEmpty
         ? pedido.clienteTelefono.trim()
         : 'Sin teléfono';
@@ -1664,9 +1817,17 @@ class _PedidosViewState extends State<PedidosView> {
                 valor: _formatearFecha(pedido.createdAt),
               ),
               const SizedBox(height: 10),
-              _BloqueDatoDetalle(
-                etiqueta: 'Entrega prevista',
-                valor: _formatearFecha(pedido.fechaPrevistaEntrega),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: _BloqueDatoDetalle(
+                      etiqueta: 'Entrega prevista',
+                      valor: _formatearFecha(pedido.fechaPrevistaEntrega),
+                    ),
+                  ),
+                  _construirBotonEditarFechaEntrega(onEditarFechaEntrega),
+                ],
               ),
             ],
           ),
@@ -1675,7 +1836,10 @@ class _PedidosViewState extends State<PedidosView> {
     );
   }
 
-  Widget _construirInfoGeneralMovil(Pedido pedido) {
+  Widget _construirInfoGeneralMovil(
+    Pedido pedido, {
+    VoidCallback? onEditarFechaEntrega,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1697,9 +1861,17 @@ class _PedidosViewState extends State<PedidosView> {
           etiqueta: 'Fecha de creación',
           valor: _formatearFecha(pedido.createdAt),
         ),
-        _FilaDatoDetalle(
-          etiqueta: 'Entrega prevista',
-          valor: _formatearFecha(pedido.fechaPrevistaEntrega),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: _FilaDatoDetalle(
+                etiqueta: 'Entrega prevista',
+                valor: _formatearFecha(pedido.fechaPrevistaEntrega),
+              ),
+            ),
+            _construirBotonEditarFechaEntrega(onEditarFechaEntrega),
+          ],
         ),
         const SizedBox(height: 8),
         _construirEtiquetasEstado(pedido),

@@ -288,24 +288,44 @@ service cloud.firestore {
         );
 
       allow update: if isAdmin()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'items',
-          'estadoProduccion',
-          'updatedAt'
-        ])
-        && request.resource.data.diff(resource.data).affectedKeys().hasAll([
-          'items',
-          'updatedAt'
-        ])
-        && request.resource.data.updatedAt == request.time
-        && esEstadoElaboracionValido(request.resource.data.estadoProduccion)
-        && esItemsSoloEstadoElaboracion(
-          resource.data.items,
-          request.resource.data.items
-        )
-        && esEstadoProduccionCoherente(
-          request.resource.data.items,
-          request.resource.data.estadoProduccion
+        && (
+          (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'items',
+              'estadoProduccion',
+              'updatedAt'
+            ])
+            && request.resource.data.diff(resource.data).affectedKeys().hasAll([
+              'items',
+              'updatedAt'
+            ])
+            && request.resource.data.updatedAt == request.time
+            && esEstadoElaboracionValido(request.resource.data.estadoProduccion)
+            && esItemsSoloEstadoElaboracion(
+              resource.data.items,
+              request.resource.data.items
+            )
+            && esEstadoProduccionCoherente(
+              request.resource.data.items,
+              request.resource.data.estadoProduccion
+            )
+          )
+          || (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'fechaPrevistaEntrega',
+              'updatedAt'
+            ])
+            && request.resource.data.diff(resource.data).affectedKeys().hasAll([
+              'fechaPrevistaEntrega',
+              'updatedAt'
+            ])
+            && (!('facturado' in resource.data) || resource.data.facturado == false)
+            && (!('ventaId' in resource.data) || resource.data.ventaId == null)
+            && request.resource.data.fechaPrevistaEntrega is timestamp
+            && request.resource.data.fechaPrevistaEntrega >= timestamp.date(2000, 1, 1)
+            && request.resource.data.fechaPrevistaEntrega < timestamp.date(2101, 1, 1)
+            && request.resource.data.updatedAt == request.time
+          )
         );
 
       allow delete: if false;

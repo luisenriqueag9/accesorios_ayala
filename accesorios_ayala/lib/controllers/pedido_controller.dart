@@ -520,6 +520,150 @@ class PedidoController {
     }
   }
 
+  /// Normaliza una fecha seleccionada al mediodía de Honduras (`18:00:00Z` UTC),
+  /// conservando su día calendario sin corrimientos por zona horaria.
+  static DateTime normalizarFechaPrevistaEntrega(DateTime fecha) {
+    if (fecha.year < 2000 || fecha.year > 2100) {
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.datosInvalidos,
+        mensaje:
+            'La fecha prevista de entrega debe estar entre los años 2000 y 2100.',
+      );
+    }
+    return DateTime.utc(fecha.year, fecha.month, fecha.day, 18);
+  }
+
+  /// Actualiza en una sola transacción de Firestore la [nuevaFechaPrevistaEntrega]
+  /// de un pedido existente, validando concurrencia optimista con
+  /// [updatedAtEsperado] y rechazando pedidos facturados o vinculados a venta.
+  static Future<Pedido> actualizarFechaPrevistaEntrega({
+    required String pedidoId,
+    required DateTime? nuevaFechaPrevistaEntrega,
+    DateTime? updatedAtEsperado,
+    FirebaseFirestore? firestore,
+  }) async {
+    final idLimpio = pedidoId.trim();
+    if (idLimpio.isEmpty) {
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.datosInvalidos,
+        mensaje: 'El identificador del pedido es obligatorio.',
+      );
+    }
+    if (nuevaFechaPrevistaEntrega == null) {
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.datosInvalidos,
+        mensaje: 'Debes seleccionar una fecha prevista de entrega válida.',
+      );
+    }
+
+    final fechaNormalizada = normalizarFechaPrevistaEntrega(
+      nuevaFechaPrevistaEntrega,
+    );
+
+    final db = firestore ?? FirebaseFirestore.instance;
+    final pedidoRef = db.collection(collection).doc(idLimpio);
+
+    try {
+      final resultado = await db.runTransaction<({Pedido pedido, bool escrito})>(
+        (tx) async {
+          final snapshot = await tx.get(pedidoRef);
+          final data = snapshot.data();
+
+          if (!snapshot.exists || data == null) {
+            throw const PedidoControllerException(
+              tipo: TipoErrorPedido.pedidoNoEncontrado,
+              mensaje: 'El pedido no existe o fue eliminado de Firestore.',
+            );
+          }
+
+          final pedidoActual = Pedido.fromMap(data, id: snapshot.id);
+          final marcaActual =
+              pedidoActual.updatedAt?.toUtc().microsecondsSinceEpoch;
+          final marcaEsperada =
+              updatedAtEsperado?.toUtc().microsecondsSinceEpoch;
+
+          if (marcaActual != marcaEsperada) {
+            throw const PedidoControllerException(
+              tipo: TipoErrorPedido.conflictoConcurrencia,
+              mensaje:
+                  'Este pedido fue modificado por otro administrador. Actualiza la lista antes de guardar.',
+            );
+          }
+
+          if (pedidoActual.facturado || pedidoActual.ventaId != null) {
+            throw const PedidoControllerException(
+              tipo: TipoErrorPedido.datosInvalidos,
+              mensaje:
+                  'No se puede modificar la fecha de entrega de un pedido ya facturado.',
+            );
+          }
+
+          final fechaActual = pedidoActual.fechaPrevistaEntrega;
+          final sinCambios =
+              fechaActual != null &&
+              fechaActual.year == fechaNormalizada.year &&
+              fechaActual.month == fechaNormalizada.month &&
+              fechaActual.day == fechaNormalizada.day;
+
+          if (sinCambios) {
+            return (pedido: pedidoActual, escrito: false);
+          }
+
+          final pedidoActualizado = pedidoActual.copyWith(
+            fechaPrevistaEntrega: fechaNormalizada,
+          );
+
+          tx.update(pedidoRef, {
+            'fechaPrevistaEntrega': Timestamp.fromDate(fechaNormalizada),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+
+          return (pedido: pedidoActualizado, escrito: true);
+        },
+      );
+
+      if (!resultado.escrito) {
+        return resultado.pedido;
+      }
+
+      try {
+        final confirmadoSnap = await pedidoRef.get();
+        final data = confirmadoSnap.data();
+        if (confirmadoSnap.exists && data != null) {
+          return Pedido.fromMap(data, id: confirmadoSnap.id);
+        }
+      } on FirebaseException catch (e) {
+        throw PedidoControllerException(
+          tipo: TipoErrorPedido.actualizacionConfirmadaSinRecarga,
+          mensaje:
+              'La fecha de entrega se guardó en Firestore, pero no se pudo recuperar la versión actualizada del pedido. Recarga el pedido antes de continuar editando.',
+          codigoFirebase: e.code,
+        );
+      } catch (_) {
+        throw const PedidoControllerException(
+          tipo: TipoErrorPedido.actualizacionConfirmadaSinRecarga,
+          mensaje:
+              'La fecha de entrega se guardó en Firestore, pero no se pudo recuperar la versión actualizada del pedido. Recarga el pedido antes de continuar editando.',
+        );
+      }
+
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.actualizacionConfirmadaSinRecarga,
+        mensaje:
+            'La fecha de entrega se guardó en Firestore, pero el documento actualizado no pudo recuperarse. Recarga el pedido antes de continuar editando.',
+      );
+    } on PedidoControllerException {
+      rethrow;
+    } on FirebaseException catch (e) {
+      throw _mapearFirebaseException(e, esActualizacion: true);
+    } catch (e) {
+      throw PedidoControllerException(
+        tipo: TipoErrorPedido.errorTransaccion,
+        mensaje: 'No se pudo actualizar la fecha prevista de entrega: $e',
+      );
+    }
+  }
+
   static PedidoControllerException _mapearFirebaseException(
     FirebaseException e, {
     bool esLectura = false,

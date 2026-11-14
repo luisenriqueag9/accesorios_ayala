@@ -131,4 +131,89 @@ void main() {
       },
     );
   });
+
+  group('PedidosView - Edición de fecha prevista de entrega', () {
+    IconButton obtenerBotonEditarFecha(WidgetTester tester) {
+      return tester.widget<IconButton>(
+        find.ancestor(
+          of: find.byTooltip('Editar fecha de entrega'),
+          matching: find.byType(IconButton),
+        ),
+      );
+    }
+
+    testWidgets(
+      'habilita edición de fecha en pedido no facturado y la deshabilita con cambios provisionales',
+      (tester) async {
+        await abrirDetallePedido(tester, crearPedido());
+
+        expect(obtenerBotonEditarFecha(tester).onPressed, isNotNull);
+
+        await tester.tap(find.text('En proceso').first);
+        await tester.pumpAndSettle();
+
+        expect(obtenerBotonEditarFecha(tester).onPressed, isNull);
+      },
+    );
+
+    testWidgets(
+      'deshabilita edición de fecha cuando el pedido ya fue facturado',
+      (tester) async {
+        await abrirDetallePedido(
+          tester,
+          crearPedido(
+            facturado: true,
+            ventaId: 'venta-99',
+            facturaNumero: 'FAC-0099',
+          ),
+        );
+
+        expect(obtenerBotonEditarFecha(tester).onPressed, isNull);
+      },
+    );
+
+    testWidgets(
+      'muestra diálogo de confirmación con la nueva fecha antes de guardar',
+      (tester) async {
+        final pedidoConFecha = Pedido(
+          id: 'ped-ui-fecha',
+          numeroPedido: 'PED-0022',
+          clienteId: 'cli-1',
+          clienteNombre: 'Ana López',
+          fechaPrevistaEntrega: DateTime.utc(2025, 5, 15, 18),
+          items: [
+            PedidoItem(
+              itemId: 'item-1',
+              productoId: 'prod-1',
+              nombre: 'Pulsera Dorada',
+              cantidad: 1,
+              precioUnitario: 200.0,
+              estadoElaboracion: EstadoElaboracionPedido.terminado,
+            ),
+          ],
+        );
+
+        await abrirDetallePedido(tester, pedidoConFecha);
+
+        await tester.tap(find.byTooltip('Editar fecha de entrega'));
+        await tester.pumpAndSettle();
+
+        // Seleccionar el día 10 del mismo mes (fecha histórica permitida)
+        await tester.tap(find.text('10'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('OK'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('Confirmar nueva fecha de entrega'),
+          findsOneWidget,
+        );
+        expect(find.text('Fecha actual: 15/05/2025'), findsOneWidget);
+        expect(find.text('Nueva fecha: 10/05/2025'), findsOneWidget);
+
+        await tester.tap(find.text('Cancelar'));
+        await tester.pumpAndSettle();
+      },
+    );
+  });
 }
