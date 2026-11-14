@@ -622,65 +622,69 @@ class _PedidosViewState extends State<PedidosView> {
       pedido.fechaEntrega ?? pedido.fechaPrevistaEntrega,
     );
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Expanded(
-            flex: 2,
-            child: Text(
-              _numeroVisible(pedido),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 14,
-                color: _negroElegante,
+    return InkWell(
+      onTap: () => _mostrarDetallePedido(pedido),
+      hoverColor: _rosaSuave.withValues(alpha: 0.45),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              flex: 2,
+              child: Text(
+                _numeroVisible(pedido),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                  color: _negroElegante,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 3,
-            child: Text(
-              pedido.clienteNombre,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 14, color: _negroElegante),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 2,
-            child: Text(
-              fechaEntrega,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 13.5, color: _grisTexto),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 4,
-            child: _construirEtiquetasEstado(pedido),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 2,
-            child: Text(
-              _totalVisible(pedido),
-              textAlign: TextAlign.right,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 14,
-                color: _rojoMarca,
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 3,
+              child: Text(
+                pedido.clienteNombre,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 14, color: _negroElegante),
               ),
             ),
-          ),
-        ],
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child: Text(
+                fechaEntrega,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13.5, color: _grisTexto),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 4,
+              child: _construirEtiquetasEstado(pedido),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child: Text(
+                _totalVisible(pedido),
+                textAlign: TextAlign.right,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                  color: _rojoMarca,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -703,70 +707,436 @@ class _PedidosViewState extends State<PedidosView> {
     );
 
     return Container(
-      padding: const EdgeInsets.all(16),
       decoration: _decoracionTarjeta(),
+      clipBehavior: Clip.antiAlias,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _mostrarDetallePedido(pedido),
+          borderRadius: BorderRadius.circular(22),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _numeroVisible(pedido),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: _negroElegante,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      _totalVisible(pedido),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: _rojoMarca,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  pedido.clienteNombre,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w600,
+                    color: _negroElegante,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.event_outlined,
+                      size: 15,
+                      color: _grisTexto,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Entrega: $fechaEntrega',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 13, color: _grisTexto),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                _construirEtiquetasEstado(pedido),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _formatearDireccion(Pedido pedido) {
+    final partes = [
+      pedido.clienteDireccion.trim(),
+      pedido.clienteDepartamento.trim(),
+    ].where((parte) => parte.isNotEmpty).toList();
+    return partes.isNotEmpty ? partes.join(', ') : 'Sin dirección';
+  }
+
+  Future<void> _mostrarDetallePedido(Pedido pedido) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 24,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+            side: const BorderSide(color: _bordeSuave),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 680, maxHeight: 740),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 12, 16),
+                  decoration: BoxDecoration(
+                    color: _rosaSuave.withValues(alpha: 0.7),
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(22),
+                    ),
+                    border: const Border(
+                      bottom: BorderSide(color: _bordeSuave),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: _bordeSuave),
+                        ),
+                        child: const Icon(
+                          Icons.inventory_2_outlined,
+                          color: _rojoMarca,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              _numeroVisible(pedido),
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: _negroElegante,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            const Text(
+                              'Detalle del pedido',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: _grisTexto,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        tooltip: 'Cerrar',
+                        icon: const Icon(
+                          Icons.close_rounded,
+                          color: _grisTexto,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _construirSeccionDetalle(
+                          titulo: 'Información general',
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _FilaDatoDetalle(
+                                etiqueta: 'N.º Pedido',
+                                valor: _numeroVisible(pedido),
+                              ),
+                              _FilaDatoDetalle(
+                                etiqueta: 'Cliente',
+                                valor: pedido.clienteNombre,
+                              ),
+                              _FilaDatoDetalle(
+                                etiqueta: 'Teléfono',
+                                valor: pedido.clienteTelefono.trim().isNotEmpty
+                                    ? pedido.clienteTelefono.trim()
+                                    : 'Sin teléfono',
+                              ),
+                              _FilaDatoDetalle(
+                                etiqueta: 'Dirección',
+                                valor: _formatearDireccion(pedido),
+                              ),
+                              _FilaDatoDetalle(
+                                etiqueta: 'Fecha de creación',
+                                valor: _formatearFecha(pedido.createdAt),
+                              ),
+                              _FilaDatoDetalle(
+                                etiqueta: 'Entrega prevista',
+                                valor: _formatearFecha(
+                                  pedido.fechaPrevistaEntrega,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              _construirEtiquetasEstado(pedido),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _construirSeccionDetalle(
+                          titulo: 'Productos (${pedido.items.length})',
+                          child: pedido.items.isEmpty
+                              ? const Text(
+                                  'Este pedido no tiene productos registrados.',
+                                  style: TextStyle(
+                                    fontSize: 13.5,
+                                    color: _grisTexto,
+                                  ),
+                                )
+                              : Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    for (
+                                      var i = 0;
+                                      i < pedido.items.length;
+                                      i++
+                                    ) ...[
+                                      _construirItemDetalle(pedido.items[i]),
+                                      if (i < pedido.items.length - 1)
+                                        const SizedBox(height: 10),
+                                    ],
+                                  ],
+                                ),
+                        ),
+                        const SizedBox(height: 16),
+                        _construirSeccionDetalle(
+                          titulo: 'Resumen económico',
+                          child: _construirResumenEconomicoDetalle(pedido),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+                  decoration: const BoxDecoration(
+                    border: Border(top: BorderSide(color: _bordeSuave)),
+                  ),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _rojoMarca,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 22,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text('Cerrar'),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _construirSeccionDetalle({
+    required String titulo,
+    required Widget child,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFAFAFA),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _bordeSuave),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            titulo,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: _negroElegante,
+            ),
+          ),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _construirItemDetalle(PedidoItem item) {
+    final nota = item.notaPersonalizacion.trim();
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _bordeSuave),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: Text(
-                  _numeroVisible(pedido),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  item.nombre,
                   style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w700,
                     color: _negroElegante,
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
-              Text(
-                _totalVisible(pedido),
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: _rojoMarca,
-                ),
+              const SizedBox(width: 8),
+              _ChipEstado(
+                prefijo: 'Elaboración',
+                etiqueta: item.estadoElaboracion.etiqueta,
+                color: _colorProduccion(item.estadoElaboracion),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          Text(
-            pedido.clienteNombre,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 14.5,
-              fontWeight: FontWeight.w600,
-              color: _negroElegante,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Row(
+          Wrap(
+            spacing: 16,
+            runSpacing: 4,
             children: [
-              const Icon(
-                Icons.event_outlined,
-                size: 15,
-                color: _grisTexto,
+              Text(
+                'Cantidad: ${item.cantidad}',
+                style: const TextStyle(fontSize: 13, color: _grisTexto),
               ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  'Entrega: $fechaEntrega',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13, color: _grisTexto),
-                ),
+              Text(
+                'Precio unitario: L. ${item.precioUnitario.toStringAsFixed(2)}',
+                style: const TextStyle(fontSize: 13, color: _grisTexto),
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          _construirEtiquetasEstado(pedido),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: _rosaSuave.withValues(alpha: 0.45),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: _bordeSuave),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Personalización',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: _grisTexto,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  nota.isNotEmpty ? nota : 'Sin personalización',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: nota.isNotEmpty ? _negroElegante : _grisTexto,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
+    );
+  }
+
+  Widget _construirResumenEconomicoDetalle(Pedido pedido) {
+    final subtotal = pedido.subtotalProductos;
+    final descuento = pedido.borradorFactura.calcularDescuentoMonto(subtotal);
+    final costoEnvio = pedido.borradorFactura.costoEnvio;
+    final total = pedido.totalEstimado;
+
+    return Column(
+      children: [
+        _FilaMontoDetalle(
+          etiqueta: 'Subtotal',
+          monto: 'L. ${subtotal.toStringAsFixed(2)}',
+        ),
+        if (pedido.borradorFactura.descuentoMayoristaActivo) ...[
+          const SizedBox(height: 6),
+          _FilaMontoDetalle(
+            etiqueta:
+                'Descuento mayorista (${pedido.borradorFactura.descuentoPorcentaje.toStringAsFixed(0)}%)',
+            monto: '- L. ${descuento.toStringAsFixed(2)}',
+          ),
+        ],
+        const SizedBox(height: 6),
+        _FilaMontoDetalle(
+          etiqueta: 'Costo de envío',
+          monto: 'L. ${costoEnvio.toStringAsFixed(2)}',
+        ),
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8),
+          child: Divider(height: 1, color: _bordeSuave),
+        ),
+        _FilaMontoDetalle(
+          etiqueta: 'Total estimado',
+          monto: 'L. ${total.toStringAsFixed(2)}',
+          destacado: true,
+        ),
+      ],
     );
   }
 
@@ -858,6 +1228,92 @@ class _ChipEstado extends StatelessWidget {
           color: color,
         ),
       ),
+    );
+  }
+}
+
+class _FilaDatoDetalle extends StatelessWidget {
+  final String etiqueta;
+  final String valor;
+
+  const _FilaDatoDetalle({
+    required this.etiqueta,
+    required this.valor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 122,
+            child: Text(
+              '$etiqueta:',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF6E6566),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              valor,
+              style: const TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF202020),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FilaMontoDetalle extends StatelessWidget {
+  final String etiqueta;
+  final String monto;
+  final bool destacado;
+
+  const _FilaMontoDetalle({
+    required this.etiqueta,
+    required this.monto,
+    this.destacado = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            etiqueta,
+            style: TextStyle(
+              fontSize: destacado ? 14.5 : 13.5,
+              fontWeight: destacado ? FontWeight.w800 : FontWeight.w600,
+              color: destacado
+                  ? const Color(0xFF202020)
+                  : const Color(0xFF6E6566),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          monto,
+          style: TextStyle(
+            fontSize: destacado ? 15.5 : 13.5,
+            fontWeight: destacado ? FontWeight.w800 : FontWeight.w700,
+            color: destacado
+                ? const Color(0xFFD9232E)
+                : const Color(0xFF202020),
+          ),
+        ),
+      ],
     );
   }
 }
