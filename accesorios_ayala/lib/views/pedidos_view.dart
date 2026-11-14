@@ -2,7 +2,27 @@ import 'package:flutter/material.dart';
 
 import '../models/pedido.dart';
 
-class PedidosView extends StatelessWidget {
+enum _SubseccionPedidos {
+  resumen,
+  pedidos,
+  nuevoPedido,
+  reportes,
+  alertas,
+}
+
+class _OpcionSubmenuPedidos {
+  final _SubseccionPedidos seccion;
+  final String etiqueta;
+  final IconData icono;
+
+  const _OpcionSubmenuPedidos({
+    required this.seccion,
+    required this.etiqueta,
+    required this.icono,
+  });
+}
+
+class PedidosView extends StatefulWidget {
   final List<Pedido> pedidos;
 
   const PedidosView({
@@ -10,12 +30,49 @@ class PedidosView extends StatelessWidget {
     this.pedidos = const [],
   });
 
+  @override
+  State<PedidosView> createState() => _PedidosViewState();
+}
+
+class _PedidosViewState extends State<PedidosView> {
   static const double _breakpointEscritorio = 760;
   static const Color _rojoMarca = Color(0xFFD9232E);
   static const Color _rosaSuave = Color(0xFFFFF1F2);
   static const Color _negroElegante = Color(0xFF202020);
   static const Color _grisTexto = Color(0xFF6E6566);
   static const Color _bordeSuave = Color(0xFFF0DDE0);
+
+  static const List<_OpcionSubmenuPedidos> _opcionesSubmenu = [
+    _OpcionSubmenuPedidos(
+      seccion: _SubseccionPedidos.resumen,
+      etiqueta: 'Resumen',
+      icono: Icons.dashboard_outlined,
+    ),
+    _OpcionSubmenuPedidos(
+      seccion: _SubseccionPedidos.pedidos,
+      etiqueta: 'Pedidos',
+      icono: Icons.inventory_2_outlined,
+    ),
+    _OpcionSubmenuPedidos(
+      seccion: _SubseccionPedidos.nuevoPedido,
+      etiqueta: 'Nuevo pedido',
+      icono: Icons.add_circle_outline_rounded,
+    ),
+    _OpcionSubmenuPedidos(
+      seccion: _SubseccionPedidos.reportes,
+      etiqueta: 'Reportes',
+      icono: Icons.bar_chart_rounded,
+    ),
+    _OpcionSubmenuPedidos(
+      seccion: _SubseccionPedidos.alertas,
+      etiqueta: 'Alertas',
+      icono: Icons.notifications_active_outlined,
+    ),
+  ];
+
+  _SubseccionPedidos _subseccionActiva = _SubseccionPedidos.resumen;
+
+  List<Pedido> get pedidos => widget.pedidos;
 
   String _formatearFecha(DateTime? fecha) {
     if (fecha == null) return 'Sin fecha';
@@ -64,16 +121,168 @@ class PedidosView extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _construirEncabezado(esEscritorio: esEscritorio),
+            const SizedBox(height: 14),
+            _construirSubmenu(esEscritorio: esEscritorio),
             const SizedBox(height: 18),
-            if (pedidos.isEmpty)
-              _construirEstadoVacio(esEscritorio: esEscritorio)
-            else if (esEscritorio)
-              _construirTablaEscritorio()
-            else
-              _construirListaMovil(),
+            _construirContenidoActivo(esEscritorio: esEscritorio),
           ],
         );
       },
+    );
+  }
+
+  Widget _construirSubmenu({required bool esEscritorio}) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: esEscritorio ? 14 : 10,
+        vertical: 10,
+      ),
+      decoration: _decoracionTarjeta(),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (var i = 0; i < _opcionesSubmenu.length; i++) ...[
+              _construirBotonSubmenu(_opcionesSubmenu[i]),
+              if (i < _opcionesSubmenu.length - 1) const SizedBox(width: 8),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _construirBotonSubmenu(_OpcionSubmenuPedidos opcion) {
+    final estaActiva = opcion.seccion == _subseccionActiva;
+
+    return TextButton.icon(
+      onPressed: () {
+        if (_subseccionActiva != opcion.seccion) {
+          setState(() {
+            _subseccionActiva = opcion.seccion;
+          });
+        }
+      },
+      icon: Icon(
+        opcion.icono,
+        size: 18,
+        color: estaActiva ? _rojoMarca : _grisTexto,
+      ),
+      label: Text(
+        opcion.etiqueta,
+        style: TextStyle(
+          fontSize: 13.5,
+          fontWeight: estaActiva ? FontWeight.w700 : FontWeight.w600,
+          color: estaActiva ? _rojoMarca : _negroElegante,
+        ),
+      ),
+      style: TextButton.styleFrom(
+        backgroundColor: estaActiva ? _rosaSuave : Colors.transparent,
+        foregroundColor: _rojoMarca,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(
+            color: estaActiva ? _bordeSuave : Colors.transparent,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _construirContenidoActivo({required bool esEscritorio}) {
+    switch (_subseccionActiva) {
+      case _SubseccionPedidos.resumen:
+        return _construirTarjetaInformativa(
+          icono: Icons.dashboard_outlined,
+          titulo: 'Resumen de pedidos',
+          mensaje: 'Aquí podrás consultar el estado general de tus pedidos',
+          esEscritorio: esEscritorio,
+        );
+      case _SubseccionPedidos.pedidos:
+        if (pedidos.isEmpty) {
+          return _construirEstadoVacio(esEscritorio: esEscritorio);
+        }
+        return esEscritorio
+            ? _construirTablaEscritorio()
+            : _construirListaMovil();
+      case _SubseccionPedidos.nuevoPedido:
+        return _construirTarjetaInformativa(
+          icono: Icons.add_circle_outline_rounded,
+          titulo: 'Nuevo pedido',
+          mensaje: 'Aquí podrás registrar nuevos pedidos',
+          esEscritorio: esEscritorio,
+        );
+      case _SubseccionPedidos.reportes:
+        return _construirTarjetaInformativa(
+          icono: Icons.bar_chart_rounded,
+          titulo: 'Reportes de pedidos',
+          mensaje: 'Aquí podrás consultar los reportes de tus pedidos',
+          esEscritorio: esEscritorio,
+        );
+      case _SubseccionPedidos.alertas:
+        return _construirTarjetaInformativa(
+          icono: Icons.notifications_active_outlined,
+          titulo: 'Alertas de pedidos',
+          mensaje:
+              'Aquí podrás consultar los pedidos próximos a vencer o atrasados',
+          esEscritorio: esEscritorio,
+        );
+    }
+  }
+
+  Widget _construirTarjetaInformativa({
+    required IconData icono,
+    required String titulo,
+    required String mensaje,
+    required bool esEscritorio,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: esEscritorio ? 32 : 20,
+        vertical: esEscritorio ? 40 : 30,
+      ),
+      decoration: _decoracionTarjeta(),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _rosaSuave,
+              shape: BoxShape.circle,
+              border: Border.all(color: _bordeSuave),
+            ),
+            child: Icon(
+              icono,
+              color: _rojoMarca,
+              size: 32,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            titulo,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: _negroElegante,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            mensaje,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 14,
+              color: _grisTexto,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
