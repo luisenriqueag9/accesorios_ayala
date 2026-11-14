@@ -47,8 +47,20 @@ class _NuevoPedidoViewState extends State<NuevoPedidoView> {
   bool _mostrarResultadosProductos = false;
   final List<PedidoItem> _itemsSeleccionados = [];
   final Map<String, TextEditingController> _personalizacionCtrls = {};
+  final TextEditingController _costoEnvioCtrl = TextEditingController(
+    text: '120.00',
+  );
+  final TextEditingController _descuentoCtrl = TextEditingController(
+    text: '20',
+  );
   int _siguienteSecuenciaItem = 1;
   String? _avisoProducto;
+  DateTime? _fechaPrevistaEntrega;
+  double? _costoEnvioValido = 120.0;
+  String? _errorCostoEnvio;
+  bool _descuentoMayoristaActivo = false;
+  double? _descuentoPorcentajeValido = 20.0;
+  String? _errorDescuento;
 
   double get _subtotalGeneral =>
       _itemsSeleccionados.fold(0.0, (total, item) => total + item.subtotal);
@@ -95,6 +107,8 @@ class _NuevoPedidoViewState extends State<NuevoPedidoView> {
   void dispose() {
     _buscarCtrl.dispose();
     _buscarProductoCtrl.dispose();
+    _costoEnvioCtrl.dispose();
+    _descuentoCtrl.dispose();
     for (final ctrl in _personalizacionCtrls.values) {
       ctrl.dispose();
     }
@@ -505,6 +519,118 @@ class _NuevoPedidoViewState extends State<NuevoPedidoView> {
     _notificarItemsCambiados();
   }
 
+  DateTime _soloFecha(DateTime fecha) =>
+      DateTime(fecha.year, fecha.month, fecha.day);
+
+  String _formatearFecha(DateTime fecha) {
+    final dia = fecha.day.toString().padLeft(2, '0');
+    final mes = fecha.month.toString().padLeft(2, '0');
+    return '$dia/$mes/${fecha.year}';
+  }
+
+  Future<void> _seleccionarFechaEntrega() async {
+    final hoy = _soloFecha(DateTime.now());
+    final fechaInicial =
+        (_fechaPrevistaEntrega != null &&
+            !_fechaPrevistaEntrega!.isBefore(hoy))
+        ? _fechaPrevistaEntrega!
+        : hoy;
+
+    final seleccionada = await showDatePicker(
+      context: context,
+      initialDate: fechaInicial,
+      firstDate: hoy,
+      lastDate: DateTime(hoy.year + 5),
+      helpText: 'Fecha prevista de entrega',
+      cancelText: 'Cancelar',
+      confirmText: 'Confirmar',
+    );
+    if (seleccionada == null || !mounted) return;
+
+    final normalizada = _soloFecha(seleccionada);
+    if (normalizada.isBefore(hoy)) return;
+
+    setState(() {
+      _fechaPrevistaEntrega = normalizada;
+    });
+  }
+
+  void _limpiarFechaEntrega() {
+    setState(() {
+      _fechaPrevistaEntrega = null;
+    });
+  }
+
+  void _alCambiarCostoEnvio(String valor) {
+    final limpio = valor.trim();
+    if (limpio.isEmpty) {
+      setState(() {
+        _costoEnvioValido = 0.0;
+        _errorCostoEnvio = null;
+      });
+      return;
+    }
+
+    final parsed = double.tryParse(limpio);
+    if (parsed == null || !parsed.isFinite) {
+      setState(() {
+        _costoEnvioValido = null;
+        _errorCostoEnvio = 'Ingresa un costo de envío válido.';
+      });
+      return;
+    }
+
+    if (parsed < 0) {
+      setState(() {
+        _costoEnvioValido = null;
+        _errorCostoEnvio = 'El costo de envío no puede ser negativo.';
+      });
+      return;
+    }
+
+    setState(() {
+      _costoEnvioValido = parsed;
+      _errorCostoEnvio = null;
+    });
+  }
+
+  void _alCambiarDescuento(String valor) {
+    final limpio = valor.trim().replaceAll(',', '.');
+    if (limpio.isEmpty) {
+      setState(() {
+        _descuentoPorcentajeValido = 0.0;
+        _errorDescuento = null;
+      });
+      return;
+    }
+
+    final parsed = double.tryParse(limpio);
+    if (parsed == null || !parsed.isFinite) {
+      setState(() {
+        _descuentoPorcentajeValido = null;
+        _errorDescuento = 'Ingresa un porcentaje de descuento válido.';
+      });
+      return;
+    }
+
+    if (parsed < 0 || parsed > 100) {
+      setState(() {
+        _descuentoPorcentajeValido = null;
+        _errorDescuento = 'El descuento debe estar entre 0 y 100%.';
+      });
+      return;
+    }
+
+    setState(() {
+      _descuentoPorcentajeValido = parsed;
+      _errorDescuento = null;
+    });
+  }
+
+  String _formatearPorcentaje(double valor) {
+    return valor % 1 == 0 ? valor.toStringAsFixed(0) : valor.toStringAsFixed(2);
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -519,6 +645,10 @@ class _NuevoPedidoViewState extends State<NuevoPedidoView> {
             _construirSeccionCliente(esEscritorio: esEscritorio),
             const SizedBox(height: 16),
             _construirSeccionProductos(esEscritorio: esEscritorio),
+            const SizedBox(height: 16),
+            _construirSeccionEntregaYEnvio(esEscritorio: esEscritorio),
+            const SizedBox(height: 16),
+            _construirResumenTotalEstimado(esEscritorio: esEscritorio),
           ],
         );
       },
@@ -1235,6 +1365,7 @@ class _NuevoPedidoViewState extends State<NuevoPedidoView> {
 
   Widget _construirResumenSubtotal() {
     return Container(
+      key: const ValueKey<String>('resumen-subtotal-general'),
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
@@ -1262,6 +1393,321 @@ class _NuevoPedidoViewState extends State<NuevoPedidoView> {
               color: _rojoMarca,
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _construirSeccionEntregaYEnvio({required bool esEscritorio}) {
+    final selectorFecha = InkWell(
+      onTap: _seleccionarFechaEntrega,
+      borderRadius: BorderRadius.circular(14),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: 'Fecha prevista de entrega (opcional)',
+          prefixIcon: const Icon(
+            Icons.calendar_today_outlined,
+            color: _rojoMarca,
+          ),
+          suffixIcon: _fechaPrevistaEntrega != null
+              ? IconButton(
+                  tooltip: 'Limpiar fecha',
+                  icon: const Icon(Icons.close_rounded, color: _grisTexto),
+                  onPressed: _limpiarFechaEntrega,
+                )
+              : null,
+          filled: true,
+          fillColor: _rosaSuave.withValues(alpha: 0.35),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: _bordeSuave),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: _bordeSuave),
+          ),
+        ),
+        child: Text(
+          _fechaPrevistaEntrega != null
+              ? _formatearFecha(_fechaPrevistaEntrega!)
+              : 'Sin fecha seleccionada',
+          style: TextStyle(
+            fontSize: 14.5,
+            fontWeight: _fechaPrevistaEntrega != null
+                ? FontWeight.w700
+                : FontWeight.w500,
+            color: _fechaPrevistaEntrega != null
+                ? _negroElegante
+                : _grisTexto,
+          ),
+        ),
+      ),
+    );
+
+    final campoEnvio = TextField(
+      controller: _costoEnvioCtrl,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      onChanged: _alCambiarCostoEnvio,
+      decoration: InputDecoration(
+        labelText: 'Costo de envío (L.)',
+        hintText: '0.00',
+        errorText: _errorCostoEnvio,
+        prefixIcon: const Icon(
+          Icons.local_shipping_outlined,
+          color: _rojoMarca,
+        ),
+        filled: true,
+        fillColor: _rosaSuave.withValues(alpha: 0.35),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: _bordeSuave),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: _bordeSuave),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: _rojoMarca, width: 1.6),
+        ),
+      ),
+    );
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(esEscritorio ? 24 : 18),
+      decoration: _decoracionTarjeta(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Entrega y envío',
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+              color: _negroElegante,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Define una fecha prevista opcional y el costo de envío para calcular el total.',
+            style: TextStyle(fontSize: 13.5, color: _grisTexto),
+          ),
+          const SizedBox(height: 14),
+          if (esEscritorio)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: selectorFecha),
+                const SizedBox(width: 14),
+                Expanded(child: campoEnvio),
+              ],
+            )
+          else ...[
+            selectorFecha,
+            const SizedBox(height: 12),
+            campoEnvio,
+          ],
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Descuento mayorista',
+                  style: TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w700,
+                    color: _negroElegante,
+                  ),
+                ),
+              ),
+              Switch(
+                value: _descuentoMayoristaActivo,
+                activeTrackColor: _rojoMarca.withValues(alpha: 0.35),
+                thumbColor: WidgetStateProperty.resolveWith((states) {
+                  if (states.contains(WidgetState.selected)) {
+                    return _rojoMarca;
+                  }
+                  return null;
+                }),
+                onChanged: (valor) {
+                  setState(() {
+                    _descuentoMayoristaActivo = valor;
+                  });
+                },
+              ),
+            ],
+          ),
+          if (_descuentoMayoristaActivo) ...[
+            const SizedBox(height: 10),
+            TextField(
+              controller: _descuentoCtrl,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              onChanged: _alCambiarDescuento,
+              decoration: InputDecoration(
+                labelText: 'Descuento mayorista (%)',
+                hintText: '20',
+                errorText: _errorDescuento,
+                prefixIcon: const Icon(
+                  Icons.percent_rounded,
+                  color: _rojoMarca,
+                ),
+                filled: true,
+                fillColor: _rosaSuave.withValues(alpha: 0.35),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: _bordeSuave),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: _bordeSuave),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: _rojoMarca, width: 1.6),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _construirResumenTotalEstimado({required bool esEscritorio}) {
+    final envioValido = _costoEnvioValido;
+    final descuentoValido =
+        _descuentoMayoristaActivo ? _descuentoPorcentajeValido : 0.0;
+    final borrador = (envioValido != null && descuentoValido != null)
+        ? BorradorFacturaPedido(
+            impuestoPorcentaje: 0.0,
+            descuentoMayoristaActivo: _descuentoMayoristaActivo,
+            descuentoPorcentaje: descuentoValido,
+            costoEnvio: envioValido,
+          )
+        : null;
+    final descuentoMonto = borrador?.calcularDescuentoMonto(_subtotalGeneral);
+    final totalEstimado = borrador?.calcularTotal(_subtotalGeneral);
+
+    return Container(
+      key: const ValueKey<String>('resumen-total-estimado'),
+      width: double.infinity,
+      padding: EdgeInsets.all(esEscritorio ? 24 : 18),
+      decoration: _decoracionTarjeta(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Subtotal productos',
+                  style: TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w600,
+                    color: _grisTexto,
+                  ),
+                ),
+              ),
+              Text(
+                _formatearPrecio(_subtotalGeneral),
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: _negroElegante,
+                ),
+              ),
+            ],
+          ),
+          if (_descuentoMayoristaActivo) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    descuentoValido != null
+                        ? 'Descuento mayorista (${_formatearPorcentaje(descuentoValido)}%)'
+                        : 'Descuento mayorista',
+                    style: const TextStyle(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w600,
+                      color: _grisTexto,
+                    ),
+                  ),
+                ),
+                Text(
+                  descuentoMonto != null
+                      ? '- ${_formatearPrecio(descuentoMonto)}'
+                      : 'Valor inválido',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: descuentoMonto != null ? _negroElegante : _rojoMarca,
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Costo de envío',
+                  style: TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w600,
+                    color: _grisTexto,
+                  ),
+                ),
+              ),
+              Text(
+                envioValido != null
+                    ? _formatearPrecio(envioValido)
+                    : 'Valor inválido',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: envioValido != null ? _negroElegante : _rojoMarca,
+                ),
+              ),
+            ],
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Divider(height: 1, color: _bordeSuave),
+          ),
+          if (totalEstimado != null)
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Total estimado',
+                    style: TextStyle(
+                      fontSize: 16.5,
+                      fontWeight: FontWeight.w800,
+                      color: _negroElegante,
+                    ),
+                  ),
+                ),
+                Text(
+                  _formatearPrecio(totalEstimado),
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: _rojoMarca,
+                  ),
+                ),
+              ],
+            )
+          else
+            _construirAvisoDiscreto(
+              envioValido == null
+                  ? 'Corrige el costo de envío para calcular el total estimado.'
+                  : 'Corrige el descuento mayorista para calcular el total estimado.',
+            ),
         ],
       ),
     );

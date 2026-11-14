@@ -70,6 +70,14 @@ void main() {
     );
   }
 
+  Finder buscadorClientesFinder() {
+    return find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField &&
+          widget.decoration?.labelText == 'Buscar cliente por nombre',
+    );
+  }
+
   group('NuevoPedidoView - Buscador de clientes', () {
     testWidgets(
       'muestra el campo "Buscar cliente por nombre" sin desplegar resultados inicialmente',
@@ -89,7 +97,7 @@ void main() {
       (tester) async {
         await tester.pumpWidget(construirVistaPrueba());
 
-        final buscador = find.byType(TextField);
+        final buscador = buscadorClientesFinder();
         await tester.tap(buscador);
         await tester.pump();
         await tester.enterText(buscador, 'Álvar');
@@ -106,7 +114,7 @@ void main() {
       (tester) async {
         await tester.pumpWidget(construirVistaPrueba());
 
-        final buscador = find.byType(TextField);
+        final buscador = buscadorClientesFinder();
         await tester.tap(buscador);
         await tester.pump();
 
@@ -127,7 +135,7 @@ void main() {
       (tester) async {
         await tester.pumpWidget(construirVistaPrueba());
 
-        await tester.tap(find.byType(TextField));
+        await tester.tap(buscadorClientesFinder());
         await tester.pump();
 
         await tester.tap(find.text('María José López'));
@@ -147,7 +155,7 @@ void main() {
       (tester) async {
         await tester.pumpWidget(construirVistaPrueba());
 
-        await tester.tap(find.byType(TextField));
+        await tester.tap(buscadorClientesFinder());
         await tester.pump();
         await tester.tap(find.text('María José López'));
         await tester.pump();
@@ -176,7 +184,7 @@ void main() {
       (tester) async {
         await tester.pumpWidget(construirVistaPrueba());
 
-        final buscador = find.byType(TextField);
+        final buscador = buscadorClientesFinder();
         await tester.tap(buscador);
         await tester.pump();
         await tester.enterText(buscador, 'Cliente Inexistente');
@@ -197,7 +205,7 @@ void main() {
 
         await tester.pumpWidget(construirVistaPrueba());
 
-        await tester.tap(find.byType(TextField));
+        await tester.tap(buscadorClientesFinder());
         await tester.pump();
         await tester.tap(find.text('Sofía Núñez'));
         await tester.pump();
@@ -318,7 +326,13 @@ void main() {
         expect(find.text('Precio unitario: L. 520.50'), findsOneWidget);
         expect(find.text('Subtotal: L. 520.50'), findsOneWidget);
         expect(find.text('Subtotal general'), findsOneWidget);
-        expect(find.text('L. 870.50'), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('resumen-subtotal-general')),
+            matching: find.text('L. 870.50'),
+          ),
+          findsOneWidget,
+        );
       },
     );
 
@@ -357,7 +371,13 @@ void main() {
         expect(find.text('2'), findsOneWidget);
         expect(find.text('Precio unitario: L. 240.00'), findsOneWidget);
         expect(find.text('Subtotal: L. 480.00'), findsOneWidget);
-        expect(find.text('L. 480.00'), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('resumen-subtotal-general')),
+            matching: find.text('L. 480.00'),
+          ),
+          findsOneWidget,
+        );
       },
     );
 
@@ -378,12 +398,19 @@ void main() {
         await tester.tap(find.text('Pulsera Ónix Dorado'));
         await tester.pump();
 
+        final resumenGeneral = find.byKey(
+          const ValueKey<String>('resumen-subtotal-general'),
+        );
+
         // Cantidad inicial = 1; intentar disminuir no baja de 1
         await tester.tap(find.byTooltip('Disminuir cantidad'));
         await tester.pump();
         expect(find.text('1'), findsOneWidget);
         expect(find.text('Subtotal: L. 350.00'), findsOneWidget);
-        expect(find.text('L. 350.00'), findsOneWidget);
+        expect(
+          find.descendant(of: resumenGeneral, matching: find.text('L. 350.00')),
+          findsOneWidget,
+        );
 
         // Aumentar cantidad a 3
         await tester.tap(find.byTooltip('Aumentar cantidad'));
@@ -392,14 +419,23 @@ void main() {
         await tester.pump();
         expect(find.text('3'), findsOneWidget);
         expect(find.text('Subtotal: L. 1050.00'), findsOneWidget);
-        expect(find.text('L. 1050.00'), findsOneWidget);
+        expect(
+          find.descendant(
+            of: resumenGeneral,
+            matching: find.text('L. 1050.00'),
+          ),
+          findsOneWidget,
+        );
 
         // Disminuir cantidad a 2
         await tester.tap(find.byTooltip('Disminuir cantidad'));
         await tester.pump();
         expect(find.text('2'), findsOneWidget);
         expect(find.text('Subtotal: L. 700.00'), findsOneWidget);
-        expect(find.text('L. 700.00'), findsOneWidget);
+        expect(
+          find.descendant(of: resumenGeneral, matching: find.text('L. 700.00')),
+          findsOneWidget,
+        );
       },
     );
 
@@ -425,14 +461,24 @@ void main() {
         await tester.tap(find.text('Aretes Ámbar Sutil'));
         await tester.pump();
 
-        expect(find.text('L. 590.00'), findsOneWidget);
+        final resumenGeneral = find.byKey(
+          const ValueKey<String>('resumen-subtotal-general'),
+        );
+
+        expect(
+          find.descendant(of: resumenGeneral, matching: find.text('L. 590.00')),
+          findsOneWidget,
+        );
 
         await tester.tap(find.byTooltip('Eliminar producto').first);
         await tester.pump();
 
         expect(find.text('Pulsera Ónix Dorado'), findsNothing);
         expect(find.text('Aretes Ámbar Sutil'), findsOneWidget);
-        expect(find.text('L. 240.00'), findsOneWidget);
+        expect(
+          find.descendant(of: resumenGeneral, matching: find.text('L. 240.00')),
+          findsOneWidget,
+        );
 
         await tester.tap(find.byTooltip('Eliminar producto'));
         await tester.pump();
@@ -482,7 +528,13 @@ void main() {
         expect(find.text('Pulsera Ónix Dorado'), findsOneWidget);
         expect(find.text('3'), findsOneWidget);
         expect(find.text('Subtotal: L. 1050.00'), findsOneWidget);
-        expect(find.text('L. 1050.00'), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('resumen-subtotal-general')),
+            matching: find.text('L. 1050.00'),
+          ),
+          findsOneWidget,
+        );
 
         // Modelo interno: 3 unidades independientes con cantidad == 1 e itemId único
         expect(itemsActuales, hasLength(3));
@@ -754,6 +806,562 @@ void main() {
         await tester.tap(find.text('Personalizar unidades'));
         await tester.pumpAndSettle();
         expect(find.text('Caja de regalo'), findsNothing);
+      },
+    );
+  });
+
+  group('NuevoPedidoView - Entrega, costo de envío y total estimado', () {
+    String formatearFechaEsperada(DateTime fecha) {
+      final dia = fecha.day.toString().padLeft(2, '0');
+      final mes = fecha.month.toString().padLeft(2, '0');
+      return '$dia/$mes/${fecha.year}';
+    }
+
+    Finder campoCostoEnvio() {
+      return find.widgetWithText(TextField, 'Costo de envío (L.)');
+    }
+
+    Finder resumenTotalFinder() {
+      return find.byKey(const ValueKey<String>('resumen-total-estimado'));
+    }
+
+    Finder selectorFechaEntregaFinder() {
+      return find.ancestor(
+        of: find.text('Fecha prevista de entrega (opcional)'),
+        matching: find.byType(InkWell),
+      );
+    }
+
+    testWidgets(
+      'permite fecha opcional, seleccionar fecha válida, limpiar selección y rechaza fechas anteriores al día actual',
+      (tester) async {
+        await tester.pumpWidget(
+          construirVistaPrueba(productos: productosPrueba),
+        );
+
+        expect(find.text('Entrega y envío'), findsOneWidget);
+        expect(find.text('Sin fecha seleccionada'), findsOneWidget);
+
+        // Abrir selector nativo de fecha
+        await tester.ensureVisible(selectorFechaEntregaFinder());
+        await tester.pumpAndSettle();
+        await tester.tap(selectorFechaEntregaFinder());
+        await tester.pumpAndSettle();
+
+        final hoy = DateTime.now();
+        final primerDiaMesActual = DateTime(hoy.year, hoy.month, 1);
+        final ayer = DateTime(hoy.year, hoy.month, hoy.day - 1);
+
+        // Verificar que la configuración de DatePicker impide elegir ayer si está en el mismo mes
+        if (ayer.month == hoy.month && !ayer.isBefore(primerDiaMesActual)) {
+          final ayerFinder = find.text('${ayer.day}');
+          if (ayerFinder.evaluate().isNotEmpty) {
+            await tester.tap(ayerFinder.first);
+            await tester.pump();
+          }
+        }
+
+        // Confirmar (selecciona hoy como mínimo válido)
+        await tester.tap(find.text('Confirmar'));
+        await tester.pumpAndSettle();
+
+        final fechaEsperada = formatearFechaEsperada(hoy);
+        expect(find.text(fechaEsperada), findsOneWidget);
+        expect(find.byTooltip('Limpiar fecha'), findsOneWidget);
+
+        // Limpiar fecha seleccionada
+        await tester.tap(find.byTooltip('Limpiar fecha'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Sin fecha seleccionada'), findsOneWidget);
+        expect(find.text(fechaEsperada), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'muestra costo de envío inicial en L. 120.00, actualiza total estimado con decimales y valida errores',
+      (tester) async {
+        await tester.pumpWidget(
+          construirVistaPrueba(productos: productosPrueba),
+        );
+
+        // Costo inicial en 120.00 y total estimado inicial en L. 120.00
+        final ctrlEnvio = tester.widget<TextField>(campoCostoEnvio()).controller;
+        expect(ctrlEnvio?.text, '120.00');
+        expect(
+          find.descendant(
+            of: resumenTotalFinder(),
+            matching: find.text('L. 0.00'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: resumenTotalFinder(),
+            matching: find.text('L. 120.00'),
+          ),
+          findsNWidgets(2),
+        );
+
+        // Agregar producto (350.00) -> Total inicial 350.00 + 120.00 = 470.00
+        final buscadorProductos = find.widgetWithText(
+          TextField,
+          'Buscar producto por nombre',
+        );
+        await tester.tap(buscadorProductos);
+        await tester.pump();
+        await tester.tap(find.text('Pulsera Ónix Dorado'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.descendant(
+            of: resumenTotalFinder(),
+            matching: find.text('L. 470.00'),
+          ),
+          findsOneWidget,
+        );
+
+        // Permitir cambiar envío a 0.00
+        await tester.ensureVisible(campoCostoEnvio());
+        await tester.pumpAndSettle();
+        await tester.enterText(campoCostoEnvio(), '0.00');
+        await tester.pump();
+        expect(
+          find.descendant(
+            of: resumenTotalFinder(),
+            matching: find.text('L. 0.00'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: resumenTotalFinder(),
+            matching: find.text('L. 350.00'),
+          ),
+          findsNWidgets(2),
+        );
+
+        // Ingresar envío decimal 85.50 -> Total estimado 435.50
+        await tester.enterText(campoCostoEnvio(), '85.50');
+        await tester.pump();
+
+        expect(
+          find.descendant(
+            of: resumenTotalFinder(),
+            matching: find.text('L. 350.00'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: resumenTotalFinder(),
+            matching: find.text('L. 85.50'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: resumenTotalFinder(),
+            matching: find.text('L. 435.50'),
+          ),
+          findsOneWidget,
+        );
+
+        // Borrar contenido -> interpreta envío como 0.00
+        await tester.enterText(campoCostoEnvio(), '');
+        await tester.pump();
+        expect(
+          find.descendant(
+            of: resumenTotalFinder(),
+            matching: find.text('L. 0.00'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: resumenTotalFinder(),
+            matching: find.text('L. 350.00'),
+          ),
+          findsNWidgets(2),
+        );
+
+        // Rechazar valor negativo
+        await tester.enterText(campoCostoEnvio(), '-15');
+        await tester.pump();
+        expect(
+          find.text('El costo de envío no puede ser negativo.'),
+          findsOneWidget,
+        );
+        expect(find.text('Total estimado'), findsNothing);
+        expect(
+          find.text(
+            'Corrige el costo de envío para calcular el total estimado.',
+          ),
+          findsOneWidget,
+        );
+
+        // Rechazar texto inválido
+        await tester.enterText(campoCostoEnvio(), 'abc');
+        await tester.pump();
+        expect(find.text('Ingresa un costo de envío válido.'), findsOneWidget);
+        expect(find.text('Total estimado'), findsNothing);
+
+        // Rechazar valor no finito
+        await tester.enterText(campoCostoEnvio(), 'NaN');
+        await tester.pump();
+        expect(find.text('Ingresa un costo de envío válido.'), findsOneWidget);
+        expect(find.text('Total estimado'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'conserva fecha, envío y personalizaciones al modificar clientes, productos y cantidades',
+      (tester) async {
+        List<PedidoItem> itemsActuales = const [];
+
+        await tester.pumpWidget(
+          construirVistaPrueba(
+            productos: productosPrueba,
+            onItemsCambiados: (items) => itemsActuales = items,
+          ),
+        );
+
+        // Seleccionar fecha
+        await tester.ensureVisible(selectorFechaEntregaFinder());
+        await tester.pumpAndSettle();
+        await tester.tap(selectorFechaEntregaFinder());
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Confirmar'));
+        await tester.pumpAndSettle();
+        final fechaEsperada = formatearFechaEsperada(DateTime.now());
+        expect(find.text(fechaEsperada), findsOneWidget);
+
+        // Establecer envío
+        await tester.ensureVisible(campoCostoEnvio());
+        await tester.pumpAndSettle();
+        await tester.enterText(campoCostoEnvio(), '120');
+        await tester.pump();
+
+        // Agregar producto y personalizar Unidad 1
+        final buscadorProductos = find.widgetWithText(
+          TextField,
+          'Buscar producto por nombre',
+        );
+        await tester.ensureVisible(buscadorProductos);
+        await tester.pumpAndSettle();
+        await tester.tap(buscadorProductos);
+        await tester.pumpAndSettle();
+
+        final resultadoPulsera = find.ancestor(
+          of: find.text('Pulsera Ónix Dorado'),
+          matching: find.byType(ListTile),
+        );
+        await tester.ensureVisible(resultadoPulsera);
+        await tester.pumpAndSettle();
+        await tester.tap(resultadoPulsera);
+        await tester.pumpAndSettle();
+
+        expect(itemsActuales, hasLength(1));
+        expect(find.text('Personalizar unidades'), findsOneWidget);
+
+        await tester.ensureVisible(find.text('Personalizar unidades'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Personalizar unidades'));
+        await tester.pumpAndSettle();
+
+        final primerId = itemsActuales.single.itemId;
+        final campoUnidad1 = find.descendant(
+          of: find.byKey(ValueKey<String>('unidad-$primerId')),
+          matching: find.byType(TextField),
+        );
+        await tester.ensureVisible(campoUnidad1);
+        await tester.enterText(campoUnidad1, 'Grabado especial');
+        await tester.pump();
+
+        // Aumentar cantidad a 2 y luego disminuir a 1
+        await tester.ensureVisible(find.byTooltip('Aumentar cantidad'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Aumentar cantidad'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byTooltip('Disminuir cantidad'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Disminuir cantidad'));
+        await tester.pumpAndSettle();
+
+        // Cambiar cliente
+        final buscadorClientes = buscadorClientesFinder();
+        await tester.ensureVisible(buscadorClientes);
+        await tester.pumpAndSettle();
+        await tester.tap(buscadorClientes);
+        await tester.pump();
+        await tester.ensureVisible(find.text('María José López'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('María José López'));
+        await tester.pumpAndSettle();
+
+        // Se conservan fecha, envío, personalización y total estimado (350 + 120 = 470)
+        expect(find.text(fechaEsperada), findsOneWidget);
+        expect(
+          tester.widget<TextField>(campoCostoEnvio()).controller?.text,
+          '120',
+        );
+        expect(itemsActuales.single.notaPersonalizacion, 'Grabado especial');
+        expect(
+          find.descendant(
+            of: resumenTotalFinder(),
+            matching: find.text('L. 470.00'),
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+  });
+
+  group('NuevoPedidoView - Descuento mayorista', () {
+    Finder switchMayoristaFinder() {
+      return find.byType(Switch);
+    }
+
+    Finder campoDescuentoFinder() {
+      return find.widgetWithText(TextField, 'Descuento mayorista (%)');
+    }
+
+    Finder resumenTotalFinder() {
+      return find.byKey(const ValueKey<String>('resumen-total-estimado'));
+    }
+
+    testWidgets(
+      'inicia desactivado por defecto, al activarlo aplica 20% solo al subtotal y mantiene envío de L. 120.00 sin descuento',
+      (tester) async {
+        await tester.pumpWidget(
+          construirVistaPrueba(productos: productosPrueba),
+        );
+
+        // Desactivado por defecto
+        expect(find.text('Descuento mayorista'), findsOneWidget);
+        expect(tester.widget<Switch>(switchMayoristaFinder()).value, isFalse);
+        expect(campoDescuentoFinder(), findsNothing);
+        expect(find.text('Descuento mayorista (20%)'), findsNothing);
+
+        // Agregar producto de L. 350.00
+        final buscadorProductos = find.widgetWithText(
+          TextField,
+          'Buscar producto por nombre',
+        );
+        await tester.tap(buscadorProductos);
+        await tester.pump();
+        await tester.tap(find.text('Pulsera Ónix Dorado'));
+        await tester.pumpAndSettle();
+
+        // Activar Mayorista
+        await tester.ensureVisible(switchMayoristaFinder());
+        await tester.pumpAndSettle();
+        await tester.tap(switchMayoristaFinder());
+        await tester.pumpAndSettle();
+
+        expect(tester.widget<Switch>(switchMayoristaFinder()).value, isTrue);
+        expect(
+          tester.widget<TextField>(campoDescuentoFinder()).controller?.text,
+          '20',
+        );
+
+        // Descuento: 20% de 350 = 70.00; Envío: 120.00; Total: 350 - 70 + 120 = 400.00
+        expect(
+          find.descendant(
+            of: resumenTotalFinder(),
+            matching: find.text('Descuento mayorista (20%)'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: resumenTotalFinder(),
+            matching: find.text('- L. 70.00'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: resumenTotalFinder(),
+            matching: find.text('L. 120.00'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: resumenTotalFinder(),
+            matching: find.text('L. 400.00'),
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'permite editar porcentaje con decimales, valida rangos y conserva porcentaje al desactivar y reactivar',
+      (tester) async {
+        await tester.pumpWidget(
+          construirVistaPrueba(productos: productosPrueba),
+        );
+
+        final buscadorProductos = find.widgetWithText(
+          TextField,
+          'Buscar producto por nombre',
+        );
+        await tester.tap(buscadorProductos);
+        await tester.pump();
+        await tester.tap(find.text('Pulsera Ónix Dorado'));
+        await tester.pumpAndSettle();
+
+        await tester.ensureVisible(switchMayoristaFinder());
+        await tester.pumpAndSettle();
+        await tester.tap(switchMayoristaFinder());
+        await tester.pumpAndSettle();
+
+        // Editar a 15.5% -> 15.5% de 350 = 54.25; Total = 350 - 54.25 + 120 = 415.75
+        await tester.ensureVisible(campoDescuentoFinder());
+        await tester.pumpAndSettle();
+        await tester.enterText(campoDescuentoFinder(), '15.5');
+        await tester.pump();
+
+        expect(
+          find.descendant(
+            of: resumenTotalFinder(),
+            matching: find.text('- L. 54.25'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: resumenTotalFinder(),
+            matching: find.text('L. 415.75'),
+          ),
+          findsOneWidget,
+        );
+
+        // Desactivar y reactivar conserva 15.5
+        await tester.ensureVisible(switchMayoristaFinder());
+        await tester.pumpAndSettle();
+        await tester.tap(switchMayoristaFinder());
+        await tester.pumpAndSettle();
+        expect(campoDescuentoFinder(), findsNothing);
+        expect(
+          find.descendant(
+            of: resumenTotalFinder(),
+            matching: find.text('L. 470.00'),
+          ),
+          findsOneWidget,
+        );
+
+        await tester.tap(switchMayoristaFinder());
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<TextField>(campoDescuentoFinder()).controller?.text,
+          '15.5',
+        );
+        expect(
+          find.descendant(
+            of: resumenTotalFinder(),
+            matching: find.text('L. 415.75'),
+          ),
+          findsOneWidget,
+        );
+
+        // Rechazar negativos, >100, no numéricos y no finitos
+        for (final invalido in ['-5', '105', 'abc', 'NaN']) {
+          await tester.ensureVisible(campoDescuentoFinder());
+          await tester.pumpAndSettle();
+          await tester.enterText(campoDescuentoFinder(), invalido);
+          await tester.pump();
+
+          expect(find.text('Total estimado'), findsNothing);
+          expect(
+            find.text(
+              'Corrige el descuento mayorista para calcular el total estimado.',
+            ),
+            findsOneWidget,
+          );
+        }
+      },
+    );
+
+    testWidgets(
+      'conserva estado mayorista, porcentaje y personalizaciones al modificar productos, cantidades y fecha',
+      (tester) async {
+        List<PedidoItem> itemsActuales = const [];
+
+        await tester.pumpWidget(
+          construirVistaPrueba(
+            productos: productosPrueba,
+            onItemsCambiados: (items) => itemsActuales = items,
+          ),
+        );
+
+        // Activar mayorista y cambiar porcentaje a 10
+        await tester.ensureVisible(switchMayoristaFinder());
+        await tester.pumpAndSettle();
+        await tester.tap(switchMayoristaFinder());
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(campoDescuentoFinder());
+        await tester.pumpAndSettle();
+        await tester.enterText(campoDescuentoFinder(), '10');
+        await tester.pump();
+
+        // Agregar producto y personalizar Unidad 1
+        final buscadorProductos = find.widgetWithText(
+          TextField,
+          'Buscar producto por nombre',
+        );
+        await tester.ensureVisible(buscadorProductos);
+        await tester.pumpAndSettle();
+        await tester.tap(buscadorProductos);
+        await tester.pumpAndSettle();
+
+        final resultadoPulsera = find.ancestor(
+          of: find.text('Pulsera Ónix Dorado'),
+          matching: find.byType(ListTile),
+        );
+        await tester.ensureVisible(resultadoPulsera);
+        await tester.pumpAndSettle();
+        await tester.tap(resultadoPulsera);
+        await tester.pumpAndSettle();
+
+        expect(itemsActuales, hasLength(1));
+        expect(find.text('Personalizar unidades'), findsOneWidget);
+
+        await tester.ensureVisible(find.text('Personalizar unidades'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Personalizar unidades'));
+        await tester.pumpAndSettle();
+
+        final primerId = itemsActuales.single.itemId;
+        final campoUnidad1 = find.descendant(
+          of: find.byKey(ValueKey<String>('unidad-$primerId')),
+          matching: find.byType(TextField),
+        );
+        await tester.ensureVisible(campoUnidad1);
+        await tester.enterText(campoUnidad1, 'Color perla');
+        await tester.pump();
+
+        // Aumentar cantidad a 2 -> Subtotal 700, 10% = 70, envío 120 -> Total 750
+        await tester.ensureVisible(find.byTooltip('Aumentar cantidad'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Aumentar cantidad'));
+        await tester.pumpAndSettle();
+
+        expect(tester.widget<Switch>(switchMayoristaFinder()).value, isTrue);
+        expect(
+          tester.widget<TextField>(campoDescuentoFinder()).controller?.text,
+          '10',
+        );
+        expect(itemsActuales.first.notaPersonalizacion, 'Color perla');
+        expect(
+          find.descendant(
+            of: resumenTotalFinder(),
+            matching: find.text('L. 750.00'),
+          ),
+          findsOneWidget,
+        );
       },
     );
   });
