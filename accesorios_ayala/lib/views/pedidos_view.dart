@@ -1189,6 +1189,36 @@ class _PedidosViewState extends State<PedidosView> {
                                   pedidoProvisional,
                                 ),
                               );
+                              final puedeFacturar = pedidoActual
+                                  .puedeFacturarse(
+                                    hayCambiosProvisionales:
+                                        hayCambiosProvisionales,
+                                    operacionEnCurso: bloqueadoPorOperacion,
+                                    requiereRecarga: requiereRecarga,
+                                  );
+                              final seccionFacturacion =
+                                  _construirSeccionFacturacionDetalle(
+                                    pedidoActual,
+                                    puedeFacturar: puedeFacturar,
+                                    hayCambiosProvisionales:
+                                        hayCambiosProvisionales,
+                                    bloqueadoPorOperacion:
+                                        bloqueadoPorOperacion,
+                                    requiereRecarga: requiereRecarga,
+                                    onFacturarTap: puedeFacturar
+                                        ? () {
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              const SnackBar(
+                                                content: Text(
+                                                  'La emisión de facturas desde pedidos estará disponible en la siguiente etapa.',
+                                                ),
+                                              ),
+                                            );
+                                          }
+                                        : null,
+                                  );
 
                               return SingleChildScrollView(
                                 padding: EdgeInsets.all(
@@ -1253,7 +1283,15 @@ class _PedidosViewState extends State<PedidosView> {
                                           const SizedBox(width: 16),
                                           Expanded(
                                             flex: 4,
-                                            child: seccionResumen,
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.stretch,
+                                              children: [
+                                                seccionResumen,
+                                                const SizedBox(height: 12),
+                                                seccionFacturacion,
+                                              ],
+                                            ),
                                           ),
                                         ],
                                       )
@@ -1261,6 +1299,8 @@ class _PedidosViewState extends State<PedidosView> {
                                       seccionProductos,
                                       const SizedBox(height: 14),
                                       seccionResumen,
+                                      const SizedBox(height: 12),
+                                      seccionFacturacion,
                                     ],
                                   ],
                                 ),
@@ -1466,6 +1506,115 @@ class _PedidosViewState extends State<PedidosView> {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _construirSeccionFacturacionDetalle(
+    Pedido pedido, {
+    required bool puedeFacturar,
+    required bool hayCambiosProvisionales,
+    required bool bloqueadoPorOperacion,
+    required bool requiereRecarga,
+    required VoidCallback? onFacturarTap,
+  }) {
+    final yaFacturado = pedido.facturado || pedido.ventaId != null;
+    final numeroFactura = (pedido.facturaNumero ?? '').trim();
+    final ventaId = (pedido.ventaId ?? '').trim();
+
+    String descripcionEstado;
+    if (yaFacturado) {
+      if (numeroFactura.isNotEmpty) {
+        descripcionEstado =
+            'Este pedido ya cuenta con la factura $numeroFactura y no puede generar otra.';
+      } else if (ventaId.isNotEmpty) {
+        descripcionEstado =
+            'Este pedido ya está asociado a la venta $ventaId y no puede generar otra factura.';
+      } else {
+        descripcionEstado =
+            'Este pedido ya fue facturado y no permite generar una segunda factura.';
+      }
+    } else if (bloqueadoPorOperacion) {
+      descripcionEstado =
+          'Espera a que termine la operación actual antes de facturar.';
+    } else if (requiereRecarga) {
+      descripcionEstado =
+          'Recarga el pedido para verificar su estado en Firestore antes de facturar.';
+    } else if (hayCambiosProvisionales) {
+      descripcionEstado =
+          'Guarda los cambios de producción pendientes antes de facturar.';
+    } else if (!pedido.todosAccesoriosTerminados) {
+      descripcionEstado =
+          'Disponible únicamente cuando todos los accesorios estén terminados.';
+    } else {
+      descripcionEstado =
+          'Pedido listo para facturar. La emisión estará disponible en la siguiente etapa.';
+    }
+
+    return _construirSeccionDetalle(
+      titulo: 'Facturación del pedido',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (yaFacturado) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFECFDF5),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFA7F3D0)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.verified_rounded,
+                    size: 16,
+                    color: Color(0xFF065F46),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      numeroFactura.isNotEmpty
+                          ? 'Pedido facturado · $numeroFactura'
+                          : 'Pedido facturado',
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF065F46),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+          OutlinedButton.icon(
+            onPressed: puedeFacturar ? onFacturarTap : null,
+            icon: const Icon(Icons.receipt_long_rounded, size: 18),
+            label: const Text('Facturar pedido'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _rojoMarca,
+              disabledForegroundColor: _grisTexto.withValues(alpha: 0.65),
+              side: BorderSide(
+                color: puedeFacturar ? _rojoMarca : _bordeSuave,
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            descripcionEstado,
+            style: const TextStyle(
+              fontSize: 12,
+              color: _grisTexto,
+              height: 1.35,
+            ),
+          ),
         ],
       ),
     );

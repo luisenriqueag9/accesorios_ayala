@@ -678,4 +678,94 @@ void main() {
       );
     });
   });
+
+  group('Elegibilidad para facturación manual', () {
+    Pedido crearPedidoBase({
+      List<PedidoItem>? items,
+      bool facturado = false,
+      String? ventaId,
+      String? facturaNumero,
+    }) {
+      return Pedido(
+        id: 'ped-fact-1',
+        numeroPedido: 'PED-0010',
+        clienteId: 'cli-1',
+        clienteNombre: 'Ana López',
+        items:
+            items ??
+            [
+              PedidoItem(
+                itemId: 'item-1',
+                productoId: 'prod-1',
+                nombre: 'Pulsera',
+                cantidad: 1,
+                precioUnitario: 200.0,
+                estadoElaboracion: EstadoElaboracionPedido.terminado,
+              ),
+              PedidoItem(
+                itemId: 'item-2',
+                productoId: 'prod-2',
+                nombre: 'Collar',
+                cantidad: 2,
+                precioUnitario: 300.0,
+                estadoElaboracion: EstadoElaboracionPedido.terminado,
+              ),
+            ],
+        facturado: facturado,
+        ventaId: ventaId,
+        facturaNumero: facturaNumero,
+      );
+    }
+
+    test('Pedido con todos los accesorios terminados cumple habilitación', () {
+      final pedido = crearPedidoBase();
+      expect(pedido.todosAccesoriosTerminados, isTrue);
+      expect(pedido.puedeFacturarse(), isTrue);
+    });
+
+    test('Pedido con algún accesorio pendiente no cumple habilitación', () {
+      final pedido = crearPedidoBase(
+        items: [
+          PedidoItem(
+            itemId: 'item-1',
+            productoId: 'prod-1',
+            nombre: 'Pulsera',
+            cantidad: 1,
+            precioUnitario: 200.0,
+            estadoElaboracion: EstadoElaboracionPedido.terminado,
+          ),
+          PedidoItem(
+            itemId: 'item-2',
+            productoId: 'prod-2',
+            nombre: 'Collar',
+            cantidad: 1,
+            precioUnitario: 300.0,
+            estadoElaboracion: EstadoElaboracionPedido.enProceso,
+          ),
+        ],
+      );
+      expect(pedido.todosAccesoriosTerminados, isFalse);
+      expect(pedido.puedeFacturarse(), isFalse);
+    });
+
+    test('Pedido ya facturado no cumple habilitación', () {
+      final pedido = crearPedidoBase(facturado: true);
+      expect(pedido.puedeFacturarse(), isFalse);
+    });
+
+    test('Pedido con ventaId existente no cumple habilitación', () {
+      final pedido = crearPedidoBase(ventaId: 'venta-123');
+      expect(pedido.puedeFacturarse(), isFalse);
+    });
+
+    test('Cambios provisionales sin guardar bloquean la facturación', () {
+      final pedido = crearPedidoBase();
+      expect(pedido.puedeFacturarse(hayCambiosProvisionales: true), isFalse);
+    });
+
+    test('Guardado o recarga en curso bloquean la facturación', () {
+      final pedido = crearPedidoBase();
+      expect(pedido.puedeFacturarse(operacionEnCurso: true), isFalse);
+    });
+  });
 }

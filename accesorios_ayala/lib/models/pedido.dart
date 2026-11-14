@@ -527,6 +527,28 @@ class Pedido {
     return EstadoElaboracionPedido.enProceso;
   }
 
+  /// Indica si todos los accesorios registrados en el pedido están terminados.
+  bool get todosAccesoriosTerminados =>
+      items.isNotEmpty &&
+      items.every(
+        (item) => item.estadoElaboracion == EstadoElaboracionPedido.terminado,
+      );
+
+  /// Determina si el pedido cumple las condiciones para habilitar la
+  /// facturación manual desde el detalle administrativo.
+  bool puedeFacturarse({
+    bool hayCambiosProvisionales = false,
+    bool operacionEnCurso = false,
+    bool requiereRecarga = false,
+  }) {
+    return todosAccesoriosTerminados &&
+        !facturado &&
+        ventaId == null &&
+        !hayCambiosProvisionales &&
+        !operacionEnCurso &&
+        !requiereRecarga;
+  }
+
   double get subtotalProductos =>
       items.fold(0.0, (acumulado, item) => acumulado + item.subtotal);
 
