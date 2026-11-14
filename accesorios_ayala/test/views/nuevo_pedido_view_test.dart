@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:accesorios_ayala/models/cliente.dart';
+import 'package:accesorios_ayala/models/producto.dart';
 import 'package:accesorios_ayala/views/nuevo_pedido_view.dart';
 
 void main() {
@@ -29,12 +30,36 @@ void main() {
     ),
   ];
 
-  Widget construirVistaPrueba() {
+  final productosPrueba = <Producto>[
+    Producto(
+      id: 'prod-1',
+      nombre: 'Pulsera Ónix Dorado',
+      descripcion: 'Piedra natural con dije',
+      precio: 350.0,
+    ),
+    Producto(
+      id: 'prod-2',
+      nombre: 'Collar Perla Clásica',
+      descripcion: 'Acero inoxidable 45cm',
+      precio: 520.5,
+    ),
+    Producto(
+      id: 'prod-3',
+      nombre: 'Aretes Ámbar Sutil',
+      descripcion: 'Baño de oro 18k',
+      precio: 240.0,
+    ),
+  ];
+
+  Widget construirVistaPrueba({List<Producto> productos = const []}) {
     return MaterialApp(
       home: Scaffold(
         body: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
-          child: NuevoPedidoView(clientes: clientesPrueba),
+          child: NuevoPedidoView(
+            clientes: clientesPrueba,
+            productos: productos,
+          ),
         ),
       ),
     );
@@ -190,6 +215,234 @@ void main() {
 
         expect(find.text('Sofía Núñez'), findsOneWidget);
         expect(find.text('3344-5566'), findsOneWidget);
+      },
+    );
+  });
+
+  group('NuevoPedidoView - Buscador y selección de productos', () {
+    testWidgets(
+      'muestra el buscador de productos sin desplegar resultados inicialmente',
+      (tester) async {
+        await tester.pumpWidget(
+          construirVistaPrueba(productos: productosPrueba),
+        );
+
+        expect(find.text('Productos'), findsOneWidget);
+        expect(find.text('Buscar producto por nombre'), findsOneWidget);
+        expect(find.text('Pulsera Ónix Dorado'), findsNothing);
+        expect(find.text('Collar Perla Clásica'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'filtra productos por nombre ignorando mayúsculas y tildes',
+      (tester) async {
+        await tester.pumpWidget(
+          construirVistaPrueba(productos: productosPrueba),
+        );
+
+        final buscadorProductos = find.widgetWithText(
+          TextField,
+          'Buscar producto por nombre',
+        );
+        await tester.tap(buscadorProductos);
+        await tester.pump();
+
+        await tester.enterText(buscadorProductos, 'onix');
+        await tester.pump();
+        expect(find.text('Pulsera Ónix Dorado'), findsOneWidget);
+        expect(find.text('L. 350.00'), findsOneWidget);
+        expect(find.text('Collar Perla Clásica'), findsNothing);
+
+        await tester.enterText(buscadorProductos, 'CLASICA');
+        await tester.pump();
+        expect(find.text('Collar Perla Clásica'), findsOneWidget);
+        expect(find.text('L. 520.50'), findsOneWidget);
+        expect(find.text('Pulsera Ónix Dorado'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'muestra "No se encontraron productos" cuando no hay coincidencias',
+      (tester) async {
+        await tester.pumpWidget(
+          construirVistaPrueba(productos: productosPrueba),
+        );
+
+        final buscadorProductos = find.widgetWithText(
+          TextField,
+          'Buscar producto por nombre',
+        );
+        await tester.tap(buscadorProductos);
+        await tester.pump();
+        await tester.enterText(buscadorProductos, 'Producto Inexistente');
+        await tester.pump();
+
+        expect(find.text('No se encontraron productos'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'permite agregar varios productos distintos a la lista de seleccionados',
+      (tester) async {
+        await tester.pumpWidget(
+          construirVistaPrueba(productos: productosPrueba),
+        );
+
+        final buscadorProductos = find.widgetWithText(
+          TextField,
+          'Buscar producto por nombre',
+        );
+
+        await tester.tap(buscadorProductos);
+        await tester.pump();
+        await tester.tap(find.text('Pulsera Ónix Dorado'));
+        await tester.pump();
+
+        await tester.tap(find.byTooltip('Mostrar lista de productos'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Collar Perla Clásica'), findsOneWidget);
+        await tester.tap(find.text('Collar Perla Clásica'));
+        await tester.pump();
+
+        expect(find.text('Pulsera Ónix Dorado'), findsOneWidget);
+        expect(find.text('Precio unitario: L. 350.00'), findsOneWidget);
+        expect(find.text('Subtotal: L. 350.00'), findsOneWidget);
+        expect(find.text('Collar Perla Clásica'), findsOneWidget);
+        expect(find.text('Precio unitario: L. 520.50'), findsOneWidget);
+        expect(find.text('Subtotal: L. 520.50'), findsOneWidget);
+        expect(find.text('Subtotal general'), findsOneWidget);
+        expect(find.text('L. 870.50'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'seleccionar dos veces el mismo producto incrementa su cantidad sin duplicar fila',
+      (tester) async {
+        await tester.pumpWidget(
+          construirVistaPrueba(productos: productosPrueba),
+        );
+
+        final buscadorProductos = find.widgetWithText(
+          TextField,
+          'Buscar producto por nombre',
+        );
+
+        await tester.tap(buscadorProductos);
+        await tester.pump();
+        await tester.tap(find.text('Aretes Ámbar Sutil'));
+        await tester.pump();
+
+        expect(find.text('1'), findsOneWidget);
+        expect(find.text('Subtotal: L. 240.00'), findsOneWidget);
+
+        await tester.tap(find.byTooltip('Mostrar lista de productos'));
+        await tester.pumpAndSettle();
+
+        final resultadoAretes = find.descendant(
+          of: find.byType(ListTile),
+          matching: find.text('Aretes Ámbar Sutil'),
+        );
+        expect(resultadoAretes, findsOneWidget);
+        await tester.tap(resultadoAretes);
+        await tester.pump();
+
+        expect(find.text('Aretes Ámbar Sutil'), findsOneWidget);
+        expect(find.text('2'), findsOneWidget);
+        expect(find.text('Precio unitario: L. 240.00'), findsOneWidget);
+        expect(find.text('Subtotal: L. 480.00'), findsOneWidget);
+        expect(find.text('L. 480.00'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'los botones + y - ajustan cantidades sin bajar de 1 y actualizan subtotales',
+      (tester) async {
+        await tester.pumpWidget(
+          construirVistaPrueba(productos: productosPrueba),
+        );
+
+        final buscadorProductos = find.widgetWithText(
+          TextField,
+          'Buscar producto por nombre',
+        );
+
+        await tester.tap(buscadorProductos);
+        await tester.pump();
+        await tester.tap(find.text('Pulsera Ónix Dorado'));
+        await tester.pump();
+
+        // Cantidad inicial = 1; intentar disminuir no baja de 1
+        await tester.tap(find.byTooltip('Disminuir cantidad'));
+        await tester.pump();
+        expect(find.text('1'), findsOneWidget);
+        expect(find.text('Subtotal: L. 350.00'), findsOneWidget);
+        expect(find.text('L. 350.00'), findsOneWidget);
+
+        // Aumentar cantidad a 3
+        await tester.tap(find.byTooltip('Aumentar cantidad'));
+        await tester.pump();
+        await tester.tap(find.byTooltip('Aumentar cantidad'));
+        await tester.pump();
+        expect(find.text('3'), findsOneWidget);
+        expect(find.text('Subtotal: L. 1050.00'), findsOneWidget);
+        expect(find.text('L. 1050.00'), findsOneWidget);
+
+        // Disminuir cantidad a 2
+        await tester.tap(find.byTooltip('Disminuir cantidad'));
+        await tester.pump();
+        expect(find.text('2'), findsOneWidget);
+        expect(find.text('Subtotal: L. 700.00'), findsOneWidget);
+        expect(find.text('L. 700.00'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'permite eliminar un producto seleccionado y actualiza el subtotal general',
+      (tester) async {
+        await tester.pumpWidget(
+          construirVistaPrueba(productos: productosPrueba),
+        );
+
+        final buscadorProductos = find.widgetWithText(
+          TextField,
+          'Buscar producto por nombre',
+        );
+
+        await tester.tap(buscadorProductos);
+        await tester.pump();
+        await tester.tap(find.text('Pulsera Ónix Dorado'));
+        await tester.pump();
+
+        await tester.tap(find.byTooltip('Mostrar lista de productos'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Aretes Ámbar Sutil'));
+        await tester.pump();
+
+        expect(find.text('L. 590.00'), findsOneWidget);
+
+        await tester.tap(find.byTooltip('Eliminar producto').first);
+        await tester.pump();
+
+        expect(find.text('Pulsera Ónix Dorado'), findsNothing);
+        expect(find.text('Aretes Ámbar Sutil'), findsOneWidget);
+        expect(find.text('L. 240.00'), findsOneWidget);
+
+        await tester.tap(find.byTooltip('Eliminar producto'));
+        await tester.pump();
+
+        expect(find.text('Aretes Ámbar Sutil'), findsNothing);
+        expect(find.text('Subtotal general'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'acepta productos: const [] sin requerir Firebase',
+      (tester) async {
+        await tester.pumpWidget(construirVistaPrueba(productos: const []));
+
+        expect(find.text('No hay productos registrados'), findsOneWidget);
       },
     );
   });
