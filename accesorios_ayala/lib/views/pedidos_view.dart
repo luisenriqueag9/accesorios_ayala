@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../controllers/pedido_controller.dart';
 import '../models/pedido.dart';
 import 'nuevo_pedido_view.dart';
 
@@ -24,11 +25,11 @@ class _OpcionSubmenuPedidos {
 }
 
 class PedidosView extends StatefulWidget {
-  final List<Pedido> pedidos;
+  final List<Pedido>? pedidos;
 
   const PedidosView({
     super.key,
-    this.pedidos = const [],
+    this.pedidos,
   });
 
   @override
@@ -72,8 +73,65 @@ class _PedidosViewState extends State<PedidosView> {
   ];
 
   _SubseccionPedidos _subseccionActiva = _SubseccionPedidos.resumen;
+  List<Pedido> _pedidosCargados = [];
+  bool _cargandoPedidos = false;
+  String? _errorCargaPedidos;
 
-  List<Pedido> get pedidos => widget.pedidos;
+  bool get _usaListaExterna => widget.pedidos != null;
+
+  List<Pedido> get pedidos => widget.pedidos ?? _pedidosCargados;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_usaListaExterna) {
+      _cargarPedidos();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant PedidosView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.pedidos == null && oldWidget.pedidos != null) {
+      _cargarPedidos();
+    } else if (widget.pedidos != null && oldWidget.pedidos == null) {
+      setState(() {
+        _cargandoPedidos = false;
+        _errorCargaPedidos = null;
+      });
+    }
+  }
+
+  Future<void> _cargarPedidos() async {
+    if (_usaListaExterna || _cargandoPedidos) return;
+
+    setState(() {
+      _cargandoPedidos = true;
+      _errorCargaPedidos = null;
+    });
+
+    try {
+      final cargados = await PedidoController.cargarPedidos();
+      if (!mounted) return;
+      setState(() {
+        _pedidosCargados = cargados;
+        _cargandoPedidos = false;
+      });
+    } on PedidoControllerException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorCargaPedidos = e.mensaje;
+        _cargandoPedidos = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _errorCargaPedidos =
+            'No se pudieron cargar los pedidos. Intenta nuevamente.';
+        _cargandoPedidos = false;
+      });
+    }
+  }
 
   String _formatearFecha(DateTime? fecha) {
     if (fecha == null) return 'Sin fecha';
@@ -160,9 +218,16 @@ class _PedidosViewState extends State<PedidosView> {
     return TextButton.icon(
       onPressed: () {
         if (_subseccionActiva != opcion.seccion) {
+          final veniaDeNuevoPedido =
+              _subseccionActiva == _SubseccionPedidos.nuevoPedido;
           setState(() {
             _subseccionActiva = opcion.seccion;
           });
+          if (veniaDeNuevoPedido &&
+              opcion.seccion == _SubseccionPedidos.pedidos &&
+              !_usaListaExterna) {
+            _cargarPedidos();
+          }
         }
       },
       icon: Icon(
@@ -202,12 +267,7 @@ class _PedidosViewState extends State<PedidosView> {
           esEscritorio: esEscritorio,
         );
       case _SubseccionPedidos.pedidos:
-        if (pedidos.isEmpty) {
-          return _construirEstadoVacio(esEscritorio: esEscritorio);
-        }
-        return esEscritorio
-            ? _construirTablaEscritorio()
-            : _construirListaMovil();
+        return _construirSeccionPedidos(esEscritorio: esEscritorio);
       case _SubseccionPedidos.nuevoPedido:
         return const NuevoPedidoView();
       case _SubseccionPedidos.reportes:
@@ -331,6 +391,141 @@ class _PedidosViewState extends State<PedidosView> {
                   ),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _construirSeccionPedidos({required bool esEscritorio}) {
+    final Widget contenido;
+    if (_cargandoPedidos) {
+      contenido = _construirEstadoCargando(esEscritorio: esEscritorio);
+    } else if (_errorCargaPedidos != null) {
+      contenido = _construirEstadoError(esEscritorio: esEscritorio);
+    } else if (pedidos.isEmpty) {
+      contenido = _construirEstadoVacio(esEscritorio: esEscritorio);
+    } else {
+      contenido = esEscritorio
+          ? _construirTablaEscritorio()
+          : _construirListaMovil();
+    }
+
+    if (_usaListaExterna) {
+      return contenido;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Align(
+          alignment: Alignment.centerRight,
+          child: OutlinedButton.icon(
+            onPressed: _cargandoPedidos ? null : _cargarPedidos,
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text('Actualizar'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _rojoMarca,
+              backgroundColor: Colors.white,
+              side: const BorderSide(color: _bordeSuave),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        contenido,
+      ],
+    );
+  }
+
+  Widget _construirEstadoCargando({required bool esEscritorio}) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: esEscritorio ? 32 : 20,
+        vertical: esEscritorio ? 44 : 34,
+      ),
+      decoration: _decoracionTarjeta(),
+      child: const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircularProgressIndicator(color: _rojoMarca),
+          SizedBox(height: 16),
+          Text(
+            'Cargando pedidos...',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: _grisTexto,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _construirEstadoError({required bool esEscritorio}) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: esEscritorio ? 32 : 20,
+        vertical: esEscritorio ? 44 : 34,
+      ),
+      decoration: _decoracionTarjeta(),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _rosaSuave,
+              shape: BoxShape.circle,
+              border: Border.all(color: _bordeSuave),
+            ),
+            child: const Icon(
+              Icons.error_outline_rounded,
+              color: _rojoMarca,
+              size: 34,
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'No se pudieron cargar los pedidos',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: _negroElegante,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _errorCargaPedidos ??
+                'Ocurrió un error al consultar Firestore. Intenta nuevamente.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 14,
+              color: _grisTexto,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 18),
+          ElevatedButton.icon(
+            onPressed: _cargandoPedidos ? null : _cargarPedidos,
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text('Reintentar'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _rojoMarca,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
           ),
         ],

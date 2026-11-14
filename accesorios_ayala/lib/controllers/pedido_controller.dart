@@ -339,16 +339,46 @@ class PedidoController {
     }
   }
 
+  /// Consulta los pedidos almacenados en Firestore ordenados del más reciente
+  /// al más antiguo por `createdAt`.
+  static Future<List<Pedido>> cargarPedidos({
+    FirebaseFirestore? firestore,
+  }) async {
+    final db = firestore ?? FirebaseFirestore.instance;
+
+    try {
+      final snapshot = await db
+          .collection(collection)
+          .orderBy('createdAt', descending: true)
+          .get();
+
+      return snapshot.docs
+          .map((doc) => Pedido.fromMap(doc.data(), id: doc.id))
+          .toList();
+    } on PedidoControllerException {
+      rethrow;
+    } on FirebaseException catch (e) {
+      throw _mapearFirebaseException(e, esLectura: true);
+    } catch (e) {
+      throw PedidoControllerException(
+        tipo: TipoErrorPedido.errorTransaccion,
+        mensaje: 'No se pudieron consultar los pedidos en Firestore: $e',
+      );
+    }
+  }
+
   static PedidoControllerException _mapearFirebaseException(
-    FirebaseException e,
-  ) {
+    FirebaseException e, {
+    bool esLectura = false,
+  }) {
     switch (e.code) {
       case 'permission-denied':
       case 'unauthenticated':
         return PedidoControllerException(
           tipo: TipoErrorPedido.permisosInsuficientes,
-          mensaje:
-              'No tienes permisos suficientes para registrar pedidos en Firestore.',
+          mensaje: esLectura
+              ? 'No tienes permisos suficientes para consultar pedidos en Firestore.'
+              : 'No tienes permisos suficientes para registrar pedidos en Firestore.',
           codigoFirebase: e.code,
         );
       case 'already-exists':
@@ -371,7 +401,9 @@ class PedidoController {
           tipo: TipoErrorPedido.errorTransaccion,
           mensaje:
               e.message ??
-              'Error de transacción al registrar el pedido en Firestore.',
+              (esLectura
+                  ? 'No se pudieron consultar los pedidos en Firestore.'
+                  : 'Error de transacción al registrar el pedido en Firestore.'),
           codigoFirebase: e.code,
         );
     }
