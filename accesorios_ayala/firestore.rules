@@ -196,6 +196,85 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    function esEstadoElaboracionValido(estado) {
+      return estado in ['recibido', 'en_proceso', 'terminado'];
+    }
+
+    function esItemSoloEstadoActualizado(oldItems, newItems, i) {
+      return i >= newItems.size()
+        || (
+          newItems[i] is map
+          && oldItems[i] is map
+          && newItems[i].diff(oldItems[i]).affectedKeys().hasOnly(['estadoElaboracion'])
+          && esEstadoElaboracionValido(newItems[i].estadoElaboracion)
+        );
+    }
+
+    function esItemsSoloEstadoElaboracion(oldItems, newItems) {
+      return newItems is list
+        && oldItems is list
+        && newItems.size() > 0
+        && newItems.size() <= 20
+        && newItems.size() == oldItems.size()
+        && esItemSoloEstadoActualizado(oldItems, newItems, 0)
+        && esItemSoloEstadoActualizado(oldItems, newItems, 1)
+        && esItemSoloEstadoActualizado(oldItems, newItems, 2)
+        && esItemSoloEstadoActualizado(oldItems, newItems, 3)
+        && esItemSoloEstadoActualizado(oldItems, newItems, 4)
+        && esItemSoloEstadoActualizado(oldItems, newItems, 5)
+        && esItemSoloEstadoActualizado(oldItems, newItems, 6)
+        && esItemSoloEstadoActualizado(oldItems, newItems, 7)
+        && esItemSoloEstadoActualizado(oldItems, newItems, 8)
+        && esItemSoloEstadoActualizado(oldItems, newItems, 9)
+        && esItemSoloEstadoActualizado(oldItems, newItems, 10)
+        && esItemSoloEstadoActualizado(oldItems, newItems, 11)
+        && esItemSoloEstadoActualizado(oldItems, newItems, 12)
+        && esItemSoloEstadoActualizado(oldItems, newItems, 13)
+        && esItemSoloEstadoActualizado(oldItems, newItems, 14)
+        && esItemSoloEstadoActualizado(oldItems, newItems, 15)
+        && esItemSoloEstadoActualizado(oldItems, newItems, 16)
+        && esItemSoloEstadoActualizado(oldItems, newItems, 17)
+        && esItemSoloEstadoActualizado(oldItems, newItems, 18)
+        && esItemSoloEstadoActualizado(oldItems, newItems, 19);
+    }
+
+    function todosItemsEnEstado(items, estadoObjetivo) {
+      return (0 >= items.size() || items[0].estadoElaboracion == estadoObjetivo)
+        && (1 >= items.size() || items[1].estadoElaboracion == estadoObjetivo)
+        && (2 >= items.size() || items[2].estadoElaboracion == estadoObjetivo)
+        && (3 >= items.size() || items[3].estadoElaboracion == estadoObjetivo)
+        && (4 >= items.size() || items[4].estadoElaboracion == estadoObjetivo)
+        && (5 >= items.size() || items[5].estadoElaboracion == estadoObjetivo)
+        && (6 >= items.size() || items[6].estadoElaboracion == estadoObjetivo)
+        && (7 >= items.size() || items[7].estadoElaboracion == estadoObjetivo)
+        && (8 >= items.size() || items[8].estadoElaboracion == estadoObjetivo)
+        && (9 >= items.size() || items[9].estadoElaboracion == estadoObjetivo)
+        && (10 >= items.size() || items[10].estadoElaboracion == estadoObjetivo)
+        && (11 >= items.size() || items[11].estadoElaboracion == estadoObjetivo)
+        && (12 >= items.size() || items[12].estadoElaboracion == estadoObjetivo)
+        && (13 >= items.size() || items[13].estadoElaboracion == estadoObjetivo)
+        && (14 >= items.size() || items[14].estadoElaboracion == estadoObjetivo)
+        && (15 >= items.size() || items[15].estadoElaboracion == estadoObjetivo)
+        && (16 >= items.size() || items[16].estadoElaboracion == estadoObjetivo)
+        && (17 >= items.size() || items[17].estadoElaboracion == estadoObjetivo)
+        && (18 >= items.size() || items[18].estadoElaboracion == estadoObjetivo)
+        && (19 >= items.size() || items[19].estadoElaboracion == estadoObjetivo);
+    }
+
+    function esEstadoProduccionCoherente(items, estadoProduccion) {
+      return (todosItemsEnEstado(items, 'recibido') && estadoProduccion == 'recibido')
+        || (
+          !todosItemsEnEstado(items, 'recibido')
+          && todosItemsEnEstado(items, 'terminado')
+          && estadoProduccion == 'terminado'
+        )
+        || (
+          !todosItemsEnEstado(items, 'recibido')
+          && !todosItemsEnEstado(items, 'terminado')
+          && estadoProduccion == 'en_proceso'
+        );
+    }
+
     match /pedidos/{pedidoId} {
       allow read: if isAdmin();
 
@@ -208,7 +287,28 @@ service cloud.firestore {
           getAfter(/databases/$(database)/documents/contadores/pedidos).data.ultimoNumero
         );
 
-      allow update, delete: if false;
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'items',
+          'estadoProduccion',
+          'updatedAt'
+        ])
+        && request.resource.data.diff(resource.data).affectedKeys().hasAll([
+          'items',
+          'updatedAt'
+        ])
+        && request.resource.data.updatedAt == request.time
+        && esEstadoElaboracionValido(request.resource.data.estadoProduccion)
+        && esItemsSoloEstadoElaboracion(
+          resource.data.items,
+          request.resource.data.items
+        )
+        && esEstadoProduccionCoherente(
+          request.resource.data.items,
+          request.resource.data.estadoProduccion
+        );
+
+      allow delete: if false;
     }
 
     match /{document=**} {

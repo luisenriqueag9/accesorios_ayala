@@ -7,6 +7,9 @@ import '../models/pedido.dart';
 enum TipoErrorPedido {
   datosInvalidos,
   pedidoExistente,
+  pedidoNoEncontrado,
+  conflictoConcurrencia,
+  actualizacionConfirmadaSinRecarga,
   permisosInsuficientes,
   errorConexion,
   errorTransaccion,
@@ -367,9 +370,160 @@ class PedidoController {
     }
   }
 
+  /// Actualiza en una sola transacción de Firestore los estados de elaboración
+  /// de los accesorios indicados en [estadosPorItemId], verificando control de
+  /// concurrencia optimista mediante [updatedAtEsperado].
+  static Future<Pedido> actualizarEstadosProduccion({
+    required String pedidoId,
+    required Map<String, EstadoElaboracionPedido> estadosPorItemId,
+    DateTime? updatedAtEsperado,
+    FirebaseFirestore? firestore,
+  }) async {
+    final idLimpio = pedidoId.trim();
+    if (idLimpio.isEmpty) {
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.datosInvalidos,
+        mensaje: 'El identificador del pedido es obligatorio.',
+      );
+    }
+
+    for (final itemId in estadosPorItemId.keys) {
+      if (itemId.trim().isEmpty) {
+        throw const PedidoControllerException(
+          tipo: TipoErrorPedido.datosInvalidos,
+          mensaje: 'Cada accesorio a actualizar debe tener un itemId válido.',
+        );
+      }
+    }
+
+    if (estadosPorItemId.isEmpty) {
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.datosInvalidos,
+        mensaje: 'Debes indicar al menos un accesorio para actualizar.',
+      );
+    }
+
+    final db = firestore ?? FirebaseFirestore.instance;
+    final pedidoRef = db.collection(collection).doc(idLimpio);
+
+    try {
+      final resultado = await db.runTransaction<({Pedido pedido, bool escrito})>(
+        (tx) async {
+          final snapshot = await tx.get(pedidoRef);
+          final data = snapshot.data();
+
+          if (!snapshot.exists || data == null) {
+            throw const PedidoControllerException(
+              tipo: TipoErrorPedido.pedidoNoEncontrado,
+              mensaje: 'El pedido no existe o fue eliminado de Firestore.',
+            );
+          }
+
+          final pedidoActual = Pedido.fromMap(data, id: snapshot.id);
+          final marcaActual =
+              pedidoActual.updatedAt?.toUtc().microsecondsSinceEpoch;
+          final marcaEsperada =
+              updatedAtEsperado?.toUtc().microsecondsSinceEpoch;
+
+          if (marcaActual != marcaEsperada) {
+            throw const PedidoControllerException(
+              tipo: TipoErrorPedido.conflictoConcurrencia,
+              mensaje:
+                  'Este pedido fue modificado por otro administrador. Actualiza la lista antes de guardar.',
+            );
+          }
+
+          final idsExistentes =
+              pedidoActual.items.map((item) => item.itemId).toSet();
+          for (final itemId in estadosPorItemId.keys) {
+            if (!idsExistentes.contains(itemId)) {
+              throw PedidoControllerException(
+                tipo: TipoErrorPedido.datosInvalidos,
+                mensaje:
+                    'No se encontró el accesorio "$itemId" dentro del pedido.',
+              );
+            }
+          }
+
+          var huboCambioReal = false;
+          final itemsActualizados = <PedidoItem>[];
+          for (final item in pedidoActual.items) {
+            final nuevoEstado = estadosPorItemId[item.itemId];
+            if (nuevoEstado != null && nuevoEstado != item.estadoElaboracion) {
+              huboCambioReal = true;
+              itemsActualizados.add(
+                item.copyWith(estadoElaboracion: nuevoEstado),
+              );
+            } else {
+              itemsActualizados.add(item);
+            }
+          }
+
+          if (!huboCambioReal) {
+            return (pedido: pedidoActual, escrito: false);
+          }
+
+          final pedidoActualizado = pedidoActual.copyWith(
+            items: itemsActualizados,
+          );
+
+          tx.update(pedidoRef, {
+            'items': itemsActualizados.map((item) => item.toMap()).toList(),
+            'estadoProduccion':
+                pedidoActualizado.estadoProduccion.valorFirestore,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+
+          return (pedido: pedidoActualizado, escrito: true);
+        },
+      );
+
+      if (!resultado.escrito) {
+        return resultado.pedido;
+      }
+
+      try {
+        final confirmadoSnap = await pedidoRef.get();
+        final data = confirmadoSnap.data();
+        if (confirmadoSnap.exists && data != null) {
+          return Pedido.fromMap(data, id: confirmadoSnap.id);
+        }
+      } on FirebaseException catch (e) {
+        throw PedidoControllerException(
+          tipo: TipoErrorPedido.actualizacionConfirmadaSinRecarga,
+          mensaje:
+              'Los cambios se guardaron en Firestore, pero no se pudo recuperar la versión actualizada del pedido. Recarga el pedido antes de continuar editando.',
+          codigoFirebase: e.code,
+        );
+      } catch (_) {
+        throw const PedidoControllerException(
+          tipo: TipoErrorPedido.actualizacionConfirmadaSinRecarga,
+          mensaje:
+              'Los cambios se guardaron en Firestore, pero no se pudo recuperar la versión actualizada del pedido. Recarga el pedido antes de continuar editando.',
+        );
+      }
+
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.actualizacionConfirmadaSinRecarga,
+        mensaje:
+            'Los cambios se guardaron en Firestore, pero el documento actualizado no pudo recuperarse. Recarga el pedido antes de continuar editando.',
+      );
+    } on PedidoControllerException {
+      rethrow;
+    } on FirebaseException catch (e) {
+      throw _mapearFirebaseException(e, esActualizacion: true);
+    } catch (e) {
+      throw PedidoControllerException(
+        tipo: TipoErrorPedido.errorTransaccion,
+        mensaje: 'No se pudieron actualizar los estados de producción: $e',
+      );
+    }
+  }
+
   static PedidoControllerException _mapearFirebaseException(
     FirebaseException e, {
     bool esLectura = false,
+    bool esActualizacion = false,
   }) {
     switch (e.code) {
       case 'permission-denied':
@@ -378,7 +532,9 @@ class PedidoController {
           tipo: TipoErrorPedido.permisosInsuficientes,
           mensaje: esLectura
               ? 'No tienes permisos suficientes para consultar pedidos en Firestore.'
-              : 'No tienes permisos suficientes para registrar pedidos en Firestore.',
+              : (esActualizacion
+                    ? 'No tienes permisos suficientes para actualizar pedidos en Firestore.'
+                    : 'No tienes permisos suficientes para registrar pedidos en Firestore.'),
           codigoFirebase: e.code,
         );
       case 'already-exists':
@@ -403,7 +559,9 @@ class PedidoController {
               e.message ??
               (esLectura
                   ? 'No se pudieron consultar los pedidos en Firestore.'
-                  : 'Error de transacción al registrar el pedido en Firestore.'),
+                  : (esActualizacion
+                        ? 'Error de transacción al actualizar el pedido en Firestore.'
+                        : 'Error de transacción al registrar el pedido en Firestore.')),
           codigoFirebase: e.code,
         );
     }

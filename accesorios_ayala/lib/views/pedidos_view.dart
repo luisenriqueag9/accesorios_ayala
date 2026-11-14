@@ -102,8 +102,8 @@ class _PedidosViewState extends State<PedidosView> {
     }
   }
 
-  Future<void> _cargarPedidos() async {
-    if (_usaListaExterna || _cargandoPedidos) return;
+  Future<bool> _cargarPedidos() async {
+    if (_usaListaExterna || _cargandoPedidos) return false;
 
     setState(() {
       _cargandoPedidos = true;
@@ -112,24 +112,27 @@ class _PedidosViewState extends State<PedidosView> {
 
     try {
       final cargados = await PedidoController.cargarPedidos();
-      if (!mounted) return;
+      if (!mounted) return false;
       setState(() {
         _pedidosCargados = cargados;
         _cargandoPedidos = false;
       });
+      return true;
     } on PedidoControllerException catch (e) {
-      if (!mounted) return;
+      if (!mounted) return false;
       setState(() {
         _errorCargaPedidos = e.mensaje;
         _cargandoPedidos = false;
       });
+      return false;
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted) return false;
       setState(() {
         _errorCargaPedidos =
             'No se pudieron cargar los pedidos. Intenta nuevamente.';
         _cargandoPedidos = false;
       });
+      return false;
     }
   }
 
@@ -792,24 +795,45 @@ class _PedidosViewState extends State<PedidosView> {
     return partes.isNotEmpty ? partes.join(', ') : 'Sin dirección';
   }
 
+  void _actualizarPedidoEnLista(Pedido pedidoActualizado) {
+    if (_usaListaExterna || !mounted) return;
+    final indice = _pedidosCargados.indexWhere(
+      (p) => p.id == pedidoActualizado.id,
+    );
+    if (indice == -1) return;
+    setState(() {
+      _pedidosCargados = [
+        for (var i = 0; i < _pedidosCargados.length; i++)
+          if (i == indice) pedidoActualizado else _pedidosCargados[i],
+      ];
+    });
+  }
+
   Future<void> _mostrarDetallePedido(Pedido pedido) async {
+    var pedidoActual = pedido;
     final estadosProvisionales = <String, EstadoElaboracionPedido>{
-      for (final item in pedido.items) item.itemId: item.estadoElaboracion,
+      for (final item in pedidoActual.items) item.itemId: item.estadoElaboracion,
     };
+    var guardando = false;
+    var recargando = false;
+    var requiereRecarga = false;
+    String? mensajeExito;
+    String? mensajeError;
+    var permitirRecargar = false;
 
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            final hayCambiosProvisionales = pedido.items.any(
+            final hayCambiosProvisionales = pedidoActual.items.any(
               (item) =>
                   estadosProvisionales[item.itemId] != item.estadoElaboracion,
             );
             final pedidoProvisional = hayCambiosProvisionales
-                ? pedido.copyWith(
+                ? pedidoActual.copyWith(
                     items: [
-                      for (final item in pedido.items)
+                      for (final item in pedidoActual.items)
                         item.copyWith(
                           estadoElaboracion:
                               estadosProvisionales[item.itemId] ??
@@ -817,7 +841,167 @@ class _PedidosViewState extends State<PedidosView> {
                         ),
                     ],
                   )
-                : pedido;
+                : pedidoActual;
+
+            Future<void> guardarCambios() async {
+              if (guardando ||
+                  recargando ||
+                  requiereRecarga ||
+                  !hayCambiosProvisionales) {
+                return;
+              }
+
+              final cambiosPorItemId = <String, EstadoElaboracionPedido>{
+                for (final item in pedidoActual.items)
+                  if (estadosProvisionales[item.itemId] != null &&
+                      estadosProvisionales[item.itemId] !=
+                          item.estadoElaboracion)
+                    item.itemId: estadosProvisionales[item.itemId]!,
+              };
+              if (cambiosPorItemId.isEmpty) return;
+
+              setDialogState(() {
+                guardando = true;
+                mensajeExito = null;
+                mensajeError = null;
+                permitirRecargar = false;
+              });
+
+              try {
+                final pedidoConfirmado =
+                    await PedidoController.actualizarEstadosProduccion(
+                      pedidoId: pedidoActual.id,
+                      estadosPorItemId: cambiosPorItemId,
+                      updatedAtEsperado: pedidoActual.updatedAt,
+                    );
+
+                _actualizarPedidoEnLista(pedidoConfirmado);
+                if (!dialogContext.mounted) return;
+
+                setDialogState(() {
+                  pedidoActual = pedidoConfirmado;
+                  estadosProvisionales
+                    ..clear()
+                    ..addEntries(
+                      pedidoConfirmado.items.map(
+                        (item) => MapEntry(item.itemId, item.estadoElaboracion),
+                      ),
+                    );
+                  guardando = false;
+                  requiereRecarga = false;
+                  mensajeExito =
+                      'Estados de producción guardados correctamente.';
+                  mensajeError = null;
+                  permitirRecargar = false;
+                });
+              } on PedidoControllerException catch (e) {
+                if (!dialogContext.mounted) return;
+                String mensajeMostrado;
+                var necesitaRecarga = false;
+                final sufijoListaExterna = _usaListaExterna
+                    ? ' Cierra este detalle y actualiza la lista desde la vista que proporciona los pedidos antes de volver a guardar.'
+                    : '';
+
+                switch (e.tipo) {
+                  case TipoErrorPedido.conflictoConcurrencia:
+                    mensajeMostrado =
+                        'Otro administrador modificó este pedido mientras lo editabas. Recárgalo antes de continuar.$sufijoListaExterna';
+                    necesitaRecarga = true;
+                  case TipoErrorPedido.actualizacionConfirmadaSinRecarga:
+                    mensajeMostrado =
+                        'Los cambios se confirmaron en Firestore, pero no se pudo recuperar la versión actualizada. Recarga el pedido para verificar su estado actual.$sufijoListaExterna';
+                    necesitaRecarga = true;
+                  case TipoErrorPedido.errorConexion:
+                  case TipoErrorPedido.errorTransaccion:
+                    mensajeMostrado =
+                        'No se pudo confirmar si el guardado terminó en Firestore. No se reintentará automáticamente; recarga el pedido para verificar su estado actual.$sufijoListaExterna';
+                    necesitaRecarga = true;
+                  case TipoErrorPedido.datosInvalidos:
+                  case TipoErrorPedido.permisosInsuficientes:
+                  case TipoErrorPedido.pedidoNoEncontrado:
+                  case TipoErrorPedido.pedidoExistente:
+                    mensajeMostrado = e.mensaje;
+                    necesitaRecarga = false;
+                }
+
+                setDialogState(() {
+                  guardando = false;
+                  requiereRecarga = necesitaRecarga;
+                  mensajeExito = null;
+                  mensajeError = mensajeMostrado;
+                  permitirRecargar = necesitaRecarga && !_usaListaExterna;
+                });
+              } catch (_) {
+                if (!dialogContext.mounted) return;
+                final sufijoListaExterna = _usaListaExterna
+                    ? ' Cierra este detalle y actualiza la lista desde la vista que proporciona los pedidos antes de volver a guardar.'
+                    : '';
+                setDialogState(() {
+                  guardando = false;
+                  requiereRecarga = true;
+                  mensajeExito = null;
+                  mensajeError =
+                      'Ocurrió un error inesperado y no se pudo confirmar el resultado en Firestore. Recarga el pedido para verificar su estado actual.$sufijoListaExterna';
+                  permitirRecargar = !_usaListaExterna;
+                });
+              }
+            }
+
+            Future<void> recargarPedido() async {
+              if (guardando || recargando || _usaListaExterna) return;
+
+              setDialogState(() {
+                recargando = true;
+                mensajeExito = null;
+              });
+
+              final recargaExitosa = await _cargarPedidos();
+              if (!dialogContext.mounted) return;
+
+              if (!recargaExitosa) {
+                setDialogState(() {
+                  recargando = false;
+                  mensajeExito = null;
+                  mensajeError =
+                      _errorCargaPedidos ??
+                      'No se pudo recargar el pedido desde Firestore. Intenta nuevamente.';
+                  permitirRecargar = true;
+                });
+                return;
+              }
+
+              final indice = _pedidosCargados.indexWhere(
+                (p) => p.id == pedidoActual.id,
+              );
+              if (indice != -1) {
+                final recargado = _pedidosCargados[indice];
+                setDialogState(() {
+                  pedidoActual = recargado;
+                  estadosProvisionales
+                    ..clear()
+                    ..addEntries(
+                      recargado.items.map(
+                        (item) => MapEntry(item.itemId, item.estadoElaboracion),
+                      ),
+                    );
+                  recargando = false;
+                  requiereRecarga = false;
+                  mensajeError = null;
+                  permitirRecargar = false;
+                  mensajeExito =
+                      'Pedido recargado con la versión más reciente de Firestore.';
+                });
+              } else {
+                setDialogState(() {
+                  recargando = false;
+                  requiereRecarga = true;
+                  mensajeExito = null;
+                  mensajeError =
+                      'El pedido ya no aparece en Firestore. Cierra este detalle para revisar la lista actualizada.';
+                  permitirRecargar = true;
+                });
+              }
+            }
 
             final tamanioVentana = MediaQuery.sizeOf(dialogContext);
             final esVentanaEscritorio =
@@ -828,275 +1012,391 @@ class _PedidosViewState extends State<PedidosView> {
             final altoMaximo =
                 (tamanioVentana.height - (esVentanaEscritorio ? 48.0 : 32.0))
                     .clamp(320.0, 820.0);
+            final bloqueadoPorOperacion = guardando || recargando;
 
-            return Dialog(
-              backgroundColor: Colors.white,
-              surfaceTintColor: Colors.transparent,
-              insetPadding: EdgeInsets.symmetric(
-                horizontal: esVentanaEscritorio ? 24 : 12,
-                vertical: esVentanaEscritorio ? 24 : 16,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(22),
-                side: const BorderSide(color: _bordeSuave),
-              ),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: anchoMaximo,
-                  maxHeight: altoMaximo,
+            return PopScope(
+              canPop: !bloqueadoPorOperacion,
+              child: Dialog(
+                backgroundColor: Colors.white,
+                surfaceTintColor: Colors.transparent,
+                insetPadding: EdgeInsets.symmetric(
+                  horizontal: esVentanaEscritorio ? 24 : 12,
+                  vertical: esVentanaEscritorio ? 24 : 16,
                 ),
-                child: SizedBox(
-                  width: anchoMaximo,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Container(
-                        padding: EdgeInsets.fromLTRB(
-                          esVentanaEscritorio ? 22 : 16,
-                          16,
-                          12,
-                          14,
-                        ),
-                        decoration: BoxDecoration(
-                          color: _rosaSuave.withValues(alpha: 0.7),
-                          borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(22),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(22),
+                  side: const BorderSide(color: _bordeSuave),
+                ),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: anchoMaximo,
+                    maxHeight: altoMaximo,
+                  ),
+                  child: SizedBox(
+                    width: anchoMaximo,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Container(
+                          padding: EdgeInsets.fromLTRB(
+                            esVentanaEscritorio ? 22 : 16,
+                            16,
+                            12,
+                            14,
                           ),
-                          border: const Border(
-                            bottom: BorderSide(color: _bordeSuave),
+                          decoration: BoxDecoration(
+                            color: _rosaSuave.withValues(alpha: 0.7),
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(22),
+                            ),
+                            border: const Border(
+                              bottom: BorderSide(color: _bordeSuave),
+                            ),
                           ),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(color: _bordeSuave),
-                              ),
-                              child: const Icon(
-                                Icons.inventory_2_outlined,
-                                color: _rojoMarca,
-                                size: 22,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    _numeroVisible(pedidoProvisional),
-                                    style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w800,
-                                      color: _negroElegante,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  const Text(
-                                    'Detalle del pedido',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: _grisTexto,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (esVentanaEscritorio) ...[
-                              const SizedBox(width: 12),
-                              Flexible(
-                                child: Align(
-                                  alignment: Alignment.centerRight,
-                                  child: _construirEtiquetasEstado(
-                                    pedidoProvisional,
-                                  ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(color: _bordeSuave),
+                                ),
+                                child: const Icon(
+                                  Icons.inventory_2_outlined,
+                                  color: _rojoMarca,
+                                  size: 22,
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                            ],
-                            IconButton(
-                              onPressed: () => Navigator.of(dialogContext).pop(),
-                              tooltip: 'Cerrar',
-                              icon: const Icon(
-                                Icons.close_rounded,
-                                color: _grisTexto,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Flexible(
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            final esDialogoEscritorio =
-                                constraints.maxWidth >= 680;
-                            final seccionProductos = _construirSeccionDetalle(
-                              titulo:
-                                  'Productos (${pedidoProvisional.items.length})',
-                              child: pedidoProvisional.items.isEmpty
-                                  ? const Text(
-                                      'Este pedido no tiene productos registrados.',
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      _numeroVisible(pedidoProvisional),
+                                      style: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w800,
+                                        color: _negroElegante,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    const Text(
+                                      'Detalle del pedido',
                                       style: TextStyle(
-                                        fontSize: 13.5,
+                                        fontSize: 13,
                                         color: _grisTexto,
                                       ),
-                                    )
-                                  : Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        for (
-                                          var i = 0;
-                                          i < pedidoProvisional.items.length;
-                                          i++
-                                        ) ...[
-                                          _construirItemDetalle(
-                                            pedidoProvisional.items[i],
-                                            esEscritorio: esDialogoEscritorio,
-                                            onEstadoSeleccionado: (nuevoEstado) {
-                                              final itemId = pedidoProvisional
-                                                  .items[i]
-                                                  .itemId;
-                                              if (estadosProvisionales[itemId] ==
-                                                  nuevoEstado) {
-                                                return;
-                                              }
-                                              setDialogState(() {
-                                                estadosProvisionales[itemId] =
-                                                    nuevoEstado;
-                                              });
-                                            },
-                                          ),
-                                          if (i <
-                                              pedidoProvisional.items.length -
-                                                  1)
-                                            SizedBox(
-                                              height:
-                                                  esDialogoEscritorio ? 8 : 10,
-                                            ),
-                                        ],
-                                      ],
                                     ),
-                            );
-                            final seccionResumen = _construirSeccionDetalle(
-                              titulo: 'Resumen económico',
-                              child: _construirResumenEconomicoDetalle(
-                                pedidoProvisional,
-                              ),
-                            );
-
-                            return SingleChildScrollView(
-                              padding: EdgeInsets.all(
-                                esDialogoEscritorio ? 20 : 16,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  _construirSeccionDetalle(
-                                    titulo: 'Información general',
-                                    child: esDialogoEscritorio
-                                        ? _construirInfoGeneralEscritorio(
-                                            pedidoProvisional,
-                                          )
-                                        : _construirInfoGeneralMovil(
-                                            pedidoProvisional,
-                                          ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  _construirSeccionProgresoProduccion(
-                                    pedidoProvisional,
-                                    esEscritorio: esDialogoEscritorio,
-                                    hayCambiosSinGuardar:
-                                        hayCambiosProvisionales,
-                                  ),
-                                  SizedBox(
-                                    height: esDialogoEscritorio ? 16 : 14,
-                                  ),
-                                  if (esDialogoEscritorio)
-                                    Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Expanded(
-                                          flex: 7,
-                                          child: seccionProductos,
-                                        ),
-                                        const SizedBox(width: 16),
-                                        Expanded(
-                                          flex: 4,
-                                          child: seccionResumen,
-                                        ),
-                                      ],
-                                    )
-                                  else ...[
-                                    seccionProductos,
-                                    const SizedBox(height: 14),
-                                    seccionResumen,
                                   ],
-                                ],
+                                ),
                               ),
-                            );
-                          },
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-                        decoration: const BoxDecoration(
-                          border: Border(top: BorderSide(color: _bordeSuave)),
-                        ),
-                        child: Row(
-                          children: [
-                            if (hayCambiosProvisionales)
-                              const Expanded(
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.info_outline_rounded,
-                                      size: 16,
-                                      color: Color(0xFFB45309),
+                              if (esVentanaEscritorio) ...[
+                                const SizedBox(width: 12),
+                                Flexible(
+                                  child: Align(
+                                    alignment: Alignment.centerRight,
+                                    child: _construirEtiquetasEstado(
+                                      pedidoProvisional,
                                     ),
-                                    SizedBox(width: 6),
-                                    Expanded(
-                                      child: Text(
-                                        'Cambios provisionales sin guardar',
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                              ],
+                              IconButton(
+                                onPressed: bloqueadoPorOperacion
+                                    ? null
+                                    : () => Navigator.of(dialogContext).pop(),
+                                tooltip: 'Cerrar',
+                                icon: const Icon(
+                                  Icons.close_rounded,
+                                  color: _grisTexto,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Flexible(
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final esDialogoEscritorio =
+                                  constraints.maxWidth >= 680;
+                              final seccionProductos = _construirSeccionDetalle(
+                                titulo:
+                                    'Productos (${pedidoProvisional.items.length})',
+                                child: pedidoProvisional.items.isEmpty
+                                    ? const Text(
+                                        'Este pedido no tiene productos registrados.',
                                         style: TextStyle(
-                                          fontSize: 12.5,
-                                          fontWeight: FontWeight.w600,
-                                          color: Color(0xFFB45309),
+                                          fontSize: 13.5,
+                                          color: _grisTexto,
+                                        ),
+                                      )
+                                    : Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          for (
+                                            var i = 0;
+                                            i < pedidoProvisional.items.length;
+                                            i++
+                                          ) ...[
+                                            _construirItemDetalle(
+                                              pedidoProvisional.items[i],
+                                              esEscritorio: esDialogoEscritorio,
+                                              onEstadoSeleccionado:
+                                                  bloqueadoPorOperacion
+                                                  ? null
+                                                  : (nuevoEstado) {
+                                                      final itemId =
+                                                          pedidoProvisional
+                                                              .items[i]
+                                                              .itemId;
+                                                      if (estadosProvisionales[itemId] ==
+                                                          nuevoEstado) {
+                                                        return;
+                                                      }
+                                                      setDialogState(() {
+                                                        estadosProvisionales[itemId] =
+                                                            nuevoEstado;
+                                                        mensajeExito = null;
+                                                        if (!requiereRecarga) {
+                                                          mensajeError = null;
+                                                          permitirRecargar =
+                                                              false;
+                                                        }
+                                                      });
+                                                    },
+                                            ),
+                                            if (i <
+                                                pedidoProvisional.items.length -
+                                                    1)
+                                              SizedBox(
+                                                height: esDialogoEscritorio
+                                                    ? 8
+                                                    : 10,
+                                              ),
+                                          ],
+                                        ],
+                                      ),
+                              );
+                              final seccionResumen = _construirSeccionDetalle(
+                                titulo: 'Resumen económico',
+                                child: _construirResumenEconomicoDetalle(
+                                  pedidoProvisional,
+                                ),
+                              );
+
+                              return SingleChildScrollView(
+                                padding: EdgeInsets.all(
+                                  esDialogoEscritorio ? 20 : 16,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    if (mensajeError != null) ...[
+                                      _construirBannerEstadoDetalle(
+                                        mensaje: mensajeError!,
+                                        esError: true,
+                                        accionTexto: permitirRecargar
+                                            ? (recargando
+                                                  ? 'Recargando...'
+                                                  : 'Recargar pedido')
+                                            : null,
+                                        onAccion:
+                                            permitirRecargar &&
+                                                !bloqueadoPorOperacion
+                                            ? recargarPedido
+                                            : null,
+                                      ),
+                                      const SizedBox(height: 12),
+                                    ] else if (mensajeExito != null) ...[
+                                      _construirBannerEstadoDetalle(
+                                        mensaje: mensajeExito!,
+                                        esError: false,
+                                      ),
+                                      const SizedBox(height: 12),
+                                    ],
+                                    _construirSeccionDetalle(
+                                      titulo: 'Información general',
+                                      child: esDialogoEscritorio
+                                          ? _construirInfoGeneralEscritorio(
+                                              pedidoProvisional,
+                                            )
+                                          : _construirInfoGeneralMovil(
+                                              pedidoProvisional,
+                                            ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _construirSeccionProgresoProduccion(
+                                      pedidoProvisional,
+                                      esEscritorio: esDialogoEscritorio,
+                                      hayCambiosSinGuardar:
+                                          hayCambiosProvisionales,
+                                    ),
+                                    SizedBox(
+                                      height: esDialogoEscritorio ? 16 : 14,
+                                    ),
+                                    if (esDialogoEscritorio)
+                                      Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Expanded(
+                                            flex: 7,
+                                            child: seccionProductos,
+                                          ),
+                                          const SizedBox(width: 16),
+                                          Expanded(
+                                            flex: 4,
+                                            child: seccionResumen,
+                                          ),
+                                        ],
+                                      )
+                                    else ...[
+                                      seccionProductos,
+                                      const SizedBox(height: 14),
+                                      seccionResumen,
+                                    ],
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+                          decoration: const BoxDecoration(
+                            border: Border(top: BorderSide(color: _bordeSuave)),
+                          ),
+                          child: Row(
+                            children: [
+                              if (guardando)
+                                const Expanded(
+                                  child: Row(
+                                    children: [
+                                      SizedBox(
+                                        width: 15,
+                                        height: 15,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: _rojoMarca,
                                         ),
                                       ),
-                                    ),
-                                  ],
+                                      SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          'Guardando cambios en Firestore...',
+                                          style: TextStyle(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w600,
+                                            color: _grisTexto,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              else if (requiereRecarga)
+                                const Expanded(
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.sync_problem_rounded,
+                                        size: 16,
+                                        color: Color(0xFF991B1B),
+                                      ),
+                                      SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          'Recarga requerida antes de volver a guardar',
+                                          style: TextStyle(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w600,
+                                            color: Color(0xFF991B1B),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              else if (hayCambiosProvisionales)
+                                const Expanded(
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.info_outline_rounded,
+                                        size: 16,
+                                        color: Color(0xFFB45309),
+                                      ),
+                                      SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          'Cambios provisionales sin guardar',
+                                          style: TextStyle(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w600,
+                                            color: Color(0xFFB45309),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              else
+                                const Spacer(),
+                              const SizedBox(width: 12),
+                              OutlinedButton(
+                                onPressed: bloqueadoPorOperacion
+                                    ? null
+                                    : () => Navigator.of(dialogContext).pop(),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: _negroElegante,
+                                  side: const BorderSide(color: _bordeSuave),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 18,
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
                                 ),
-                              )
-                            else
-                              const Spacer(),
-                            const SizedBox(width: 12),
-                            ElevatedButton(
-                              onPressed: () =>
-                                  Navigator.of(dialogContext).pop(),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: _rojoMarca,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 22,
-                                  vertical: 12,
+                                child: const Text('Cerrar'),
+                              ),
+                              const SizedBox(width: 10),
+                              ElevatedButton(
+                                onPressed:
+                                    hayCambiosProvisionales &&
+                                        !bloqueadoPorOperacion &&
+                                        !requiereRecarga
+                                    ? guardarCambios
+                                    : null,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: _rojoMarca,
+                                  foregroundColor: Colors.white,
+                                  disabledBackgroundColor: _bordeSuave,
+                                  disabledForegroundColor: _grisTexto,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 20,
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
                                 ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                child: Text(
+                                  guardando ? 'Guardando...' : 'Guardar cambios',
                                 ),
                               ),
-                              child: const Text('Cerrar'),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1104,6 +1404,70 @@ class _PedidosViewState extends State<PedidosView> {
           },
         );
       },
+    );
+  }
+
+  Widget _construirBannerEstadoDetalle({
+    required String mensaje,
+    required bool esError,
+    String? accionTexto,
+    VoidCallback? onAccion,
+  }) {
+    final fondo = esError ? const Color(0xFFFEF2F2) : const Color(0xFFECFDF5);
+    final borde = esError ? const Color(0xFFFECACA) : const Color(0xFFA7F3D0);
+    final colorTexto = esError
+        ? const Color(0xFF991B1B)
+        : const Color(0xFF065F46);
+    final icono = esError
+        ? Icons.error_outline_rounded
+        : Icons.check_circle_outline_rounded;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: fondo,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: borde),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Icon(icono, size: 18, color: colorTexto),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              mensaje,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: colorTexto,
+              ),
+            ),
+          ),
+          if (accionTexto != null) ...[
+            const SizedBox(width: 10),
+            TextButton(
+              onPressed: onAccion,
+              style: TextButton.styleFrom(
+                foregroundColor: colorTexto,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: Text(
+                accionTexto,
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
