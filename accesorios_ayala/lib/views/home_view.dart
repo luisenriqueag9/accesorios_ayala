@@ -4,13 +4,23 @@ import 'package:flutter/material.dart';
 import 'package:accesorios_ayala/views/vista_previa_recibo_view.dart';
 
 import '../controllers/auth_controller.dart';
+import '../models/cliente.dart';
 import 'lista_clientes_view.dart';
 import 'lista_productos_view.dart';
+import 'pedidos_view.dart';
 import 'seleccionar_cliente_view.dart';
 import 'seleccionar_productos_view.dart';
 import 'resumen_ventas_view.dart';
 
-enum _AccionMenu { inicio, productos, recibos, ventas, clientes, cerrarSesion }
+enum _AccionMenu {
+  inicio,
+  productos,
+  recibos,
+  ventas,
+  clientes,
+  pedidos,
+  cerrarSesion,
+}
 
 class _OpcionMenu {
   final _AccionMenu accion;
@@ -53,7 +63,7 @@ class _HomeViewState extends State<HomeView> {
     ),
     _OpcionMenu(
       accion: _AccionMenu.recibos,
-      etiqueta: 'Recibos',
+      etiqueta: 'Facturación',
       icono: Icons.receipt_long_outlined,
     ),
     _OpcionMenu(
@@ -66,10 +76,19 @@ class _HomeViewState extends State<HomeView> {
       etiqueta: 'Clientes',
       icono: Icons.people_outline_rounded,
     ),
+    _OpcionMenu(
+      accion: _AccionMenu.pedidos,
+      etiqueta: 'Pedidos',
+      icono: Icons.inventory_2_outlined,
+    ),
   ];
 
   bool _cerrandoSesion = false;
   _AccionMenu _seccionActiva = _AccionMenu.inicio;
+  Cliente? _clienteFacturacion;
+  List<Map<String, dynamic>>? _productosFacturacion;
+  bool _mostrandoVistaPreviaFactura = false;
+  EstadoFacturaPrevia? _estadoFactura;
 
   Future<void> _confirmarCerrarSesion(BuildContext context) async {
     if (_cerrandoSesion) return;
@@ -120,32 +139,13 @@ class _HomeViewState extends State<HomeView> {
     }
   }
 
-  Future<void> _abrirGenerarRecibo(BuildContext context) async {
-    final cliente = await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const SeleccionarClienteView()),
-    );
-
-    if (cliente != null) {
-      if (!context.mounted) return;
-      final productosSeleccionados = await Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const SeleccionarProductosView()),
-      );
-
-      if (productosSeleccionados != null) {
-        if (!context.mounted) return;
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => VistaPreviaReciboView(
-              cliente: cliente,
-              seleccionados: productosSeleccionados,
-            ),
-          ),
-        );
-      }
-    }
+  void _abrirVistaPreviaFactura(
+    List<Map<String, dynamic>> productosSeleccionados,
+  ) {
+    setState(() {
+      _productosFacturacion = productosSeleccionados;
+      _mostrandoVistaPreviaFactura = true;
+    });
   }
 
   void _manejarAccionMenu(_AccionMenu accion, BuildContext context) {
@@ -165,7 +165,11 @@ class _HomeViewState extends State<HomeView> {
         }
         return;
       case _AccionMenu.recibos:
-        _abrirGenerarRecibo(context);
+        if (_seccionActiva != _AccionMenu.recibos) {
+          setState(() {
+            _seccionActiva = _AccionMenu.recibos;
+          });
+        }
         return;
       case _AccionMenu.ventas:
         if (_seccionActiva != _AccionMenu.ventas) {
@@ -178,6 +182,13 @@ class _HomeViewState extends State<HomeView> {
         if (_seccionActiva != _AccionMenu.clientes) {
           setState(() {
             _seccionActiva = _AccionMenu.clientes;
+          });
+        }
+        return;
+      case _AccionMenu.pedidos:
+        if (_seccionActiva != _AccionMenu.pedidos) {
+          setState(() {
+            _seccionActiva = _AccionMenu.pedidos;
           });
         }
         return;
@@ -365,6 +376,53 @@ class _HomeViewState extends State<HomeView> {
                             const ListaProductosView(integrado: true)
                           else if (_seccionActiva == _AccionMenu.clientes)
                             const ListaClientesView(integrado: true)
+                          else if (_seccionActiva == _AccionMenu.pedidos)
+                            const PedidosView()
+                          else if (_seccionActiva == _AccionMenu.recibos)
+                            if (_clienteFacturacion == null)
+                              SeleccionarClienteView(
+                                integrado: true,
+                                onClienteSeleccionado: (cliente) {
+                                  setState(() {
+                                    if (_estadoFactura?.ventaGuardada == true) {
+                                      _productosFacturacion = null;
+                                    }
+                                    _clienteFacturacion = cliente;
+                                    _mostrandoVistaPreviaFactura = false;
+                                    _estadoFactura = null;
+                                  });
+                                },
+                              )
+                            else if (!_mostrandoVistaPreviaFactura ||
+                                _productosFacturacion == null)
+                              SeleccionarProductosView(
+                                integrado: true,
+                                seleccionInicial: _productosFacturacion,
+                                onVolver: () {
+                                  setState(() {
+                                    _clienteFacturacion = null;
+                                    _mostrandoVistaPreviaFactura = false;
+                                  });
+                                },
+                                onContinuar: (seleccionados) {
+                                  _abrirVistaPreviaFactura(seleccionados);
+                                },
+                              )
+                            else
+                              VistaPreviaReciboView(
+                                integrado: true,
+                                cliente: _clienteFacturacion!,
+                                seleccionados: _productosFacturacion!,
+                                estadoInicial: _estadoFactura,
+                                onEstadoCambiado: (estado) {
+                                  _estadoFactura = estado;
+                                },
+                                onVolver: () {
+                                  setState(() {
+                                    _mostrandoVistaPreviaFactura = false;
+                                  });
+                                },
+                              )
                           else ...[
                             _construirEncabezadoBienvenida(
                               esEscritorio: esEscritorio,
@@ -567,7 +625,7 @@ class _HomeViewState extends State<HomeView> {
                     ),
                     const SizedBox(height: 4),
                     const Text(
-                      'Administra el catálogo, genera recibos y supervisa las ventas de Accesorios Ayala.',
+                      'Administra el catálogo, genera facturas y supervisa las ventas de Accesorios Ayala.',
                       style: TextStyle(
                         fontSize: 13.5,
                         color: _grisTexto,
