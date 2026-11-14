@@ -793,230 +793,315 @@ class _PedidosViewState extends State<PedidosView> {
   }
 
   Future<void> _mostrarDetallePedido(Pedido pedido) async {
+    final estadosProvisionales = <String, EstadoElaboracionPedido>{
+      for (final item in pedido.items) item.itemId: item.estadoElaboracion,
+    };
+
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
-        final tamanioVentana = MediaQuery.sizeOf(dialogContext);
-        final esVentanaEscritorio =
-            tamanioVentana.width >= _breakpointEscritorio;
-        final anchoMaximo = esVentanaEscritorio
-            ? (tamanioVentana.width - 48).clamp(320.0, 1320.0)
-            : (tamanioVentana.width - 24).clamp(280.0, 560.0);
-        final altoMaximo =
-            (tamanioVentana.height - (esVentanaEscritorio ? 48.0 : 32.0))
-                .clamp(320.0, 820.0);
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final hayCambiosProvisionales = pedido.items.any(
+              (item) =>
+                  estadosProvisionales[item.itemId] != item.estadoElaboracion,
+            );
+            final pedidoProvisional = hayCambiosProvisionales
+                ? pedido.copyWith(
+                    items: [
+                      for (final item in pedido.items)
+                        item.copyWith(
+                          estadoElaboracion:
+                              estadosProvisionales[item.itemId] ??
+                              item.estadoElaboracion,
+                        ),
+                    ],
+                  )
+                : pedido;
 
-        return Dialog(
-          backgroundColor: Colors.white,
-          surfaceTintColor: Colors.transparent,
-          insetPadding: EdgeInsets.symmetric(
-            horizontal: esVentanaEscritorio ? 24 : 12,
-            vertical: esVentanaEscritorio ? 24 : 16,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(22),
-            side: const BorderSide(color: _bordeSuave),
-          ),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: anchoMaximo,
-              maxHeight: altoMaximo,
-            ),
-            child: SizedBox(
-              width: anchoMaximo,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Container(
-                    padding: EdgeInsets.fromLTRB(
-                      esVentanaEscritorio ? 22 : 16,
-                      16,
-                      12,
-                      14,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _rosaSuave.withValues(alpha: 0.7),
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(22),
-                      ),
-                      border: const Border(
-                        bottom: BorderSide(color: _bordeSuave),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: _bordeSuave),
-                          ),
-                          child: const Icon(
-                            Icons.inventory_2_outlined,
-                            color: _rojoMarca,
-                            size: 22,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                _numeroVisible(pedido),
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w800,
-                                  color: _negroElegante,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              const Text(
-                                'Detalle del pedido',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: _grisTexto,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (esVentanaEscritorio) ...[
-                          const SizedBox(width: 12),
-                          Flexible(
-                            child: Align(
-                              alignment: Alignment.centerRight,
-                              child: _construirEtiquetasEstado(pedido),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                        ],
-                        IconButton(
-                          onPressed: () => Navigator.of(dialogContext).pop(),
-                          tooltip: 'Cerrar',
-                          icon: const Icon(
-                            Icons.close_rounded,
-                            color: _grisTexto,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Flexible(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final esDialogoEscritorio =
-                            constraints.maxWidth >= 680;
-                        final seccionProductos = _construirSeccionDetalle(
-                          titulo: 'Productos (${pedido.items.length})',
-                          child: pedido.items.isEmpty
-                              ? const Text(
-                                  'Este pedido no tiene productos registrados.',
-                                  style: TextStyle(
-                                    fontSize: 13.5,
-                                    color: _grisTexto,
-                                  ),
-                                )
-                              : Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    for (
-                                      var i = 0;
-                                      i < pedido.items.length;
-                                      i++
-                                    ) ...[
-                                      _construirItemDetalle(
-                                        pedido.items[i],
-                                        esEscritorio: esDialogoEscritorio,
-                                      ),
-                                      if (i < pedido.items.length - 1)
-                                        SizedBox(
-                                          height: esDialogoEscritorio ? 8 : 10,
-                                        ),
-                                    ],
-                                  ],
-                                ),
-                        );
-                        final seccionResumen = _construirSeccionDetalle(
-                          titulo: 'Resumen económico',
-                          child: _construirResumenEconomicoDetalle(pedido),
-                        );
+            final tamanioVentana = MediaQuery.sizeOf(dialogContext);
+            final esVentanaEscritorio =
+                tamanioVentana.width >= _breakpointEscritorio;
+            final anchoMaximo = esVentanaEscritorio
+                ? (tamanioVentana.width - 48).clamp(320.0, 1320.0)
+                : (tamanioVentana.width - 24).clamp(280.0, 560.0);
+            final altoMaximo =
+                (tamanioVentana.height - (esVentanaEscritorio ? 48.0 : 32.0))
+                    .clamp(320.0, 820.0);
 
-                        return SingleChildScrollView(
-                          padding: EdgeInsets.all(
-                            esDialogoEscritorio ? 20 : 16,
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              _construirSeccionDetalle(
-                                titulo: 'Información general',
-                                child: esDialogoEscritorio
-                                    ? _construirInfoGeneralEscritorio(pedido)
-                                    : _construirInfoGeneralMovil(pedido),
-                              ),
-                              SizedBox(
-                                height: esDialogoEscritorio ? 12 : 12,
-                              ),
-                              _construirSeccionProgresoProduccion(
-                                pedido,
-                                esEscritorio: esDialogoEscritorio,
-                              ),
-                              SizedBox(
-                                height: esDialogoEscritorio ? 16 : 14,
-                              ),
-                              if (esDialogoEscritorio)
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(flex: 7, child: seccionProductos),
-                                    const SizedBox(width: 16),
-                                    Expanded(flex: 4, child: seccionResumen),
-                                  ],
-                                )
-                              else ...[
-                                seccionProductos,
-                                const SizedBox(height: 14),
-                                seccionResumen,
-                              ],
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-                    decoration: const BoxDecoration(
-                      border: Border(top: BorderSide(color: _bordeSuave)),
-                    ),
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: ElevatedButton(
-                        onPressed: () => Navigator.of(dialogContext).pop(),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _rojoMarca,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 22,
-                            vertical: 12,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: const Text('Cerrar'),
-                      ),
-                    ),
-                  ),
-                ],
+            return Dialog(
+              backgroundColor: Colors.white,
+              surfaceTintColor: Colors.transparent,
+              insetPadding: EdgeInsets.symmetric(
+                horizontal: esVentanaEscritorio ? 24 : 12,
+                vertical: esVentanaEscritorio ? 24 : 16,
               ),
-            ),
-          ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(22),
+                side: const BorderSide(color: _bordeSuave),
+              ),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: anchoMaximo,
+                  maxHeight: altoMaximo,
+                ),
+                child: SizedBox(
+                  width: anchoMaximo,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Container(
+                        padding: EdgeInsets.fromLTRB(
+                          esVentanaEscritorio ? 22 : 16,
+                          16,
+                          12,
+                          14,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _rosaSuave.withValues(alpha: 0.7),
+                          borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(22),
+                          ),
+                          border: const Border(
+                            bottom: BorderSide(color: _bordeSuave),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: _bordeSuave),
+                              ),
+                              child: const Icon(
+                                Icons.inventory_2_outlined,
+                                color: _rojoMarca,
+                                size: 22,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    _numeroVisible(pedidoProvisional),
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w800,
+                                      color: _negroElegante,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  const Text(
+                                    'Detalle del pedido',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: _grisTexto,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (esVentanaEscritorio) ...[
+                              const SizedBox(width: 12),
+                              Flexible(
+                                child: Align(
+                                  alignment: Alignment.centerRight,
+                                  child: _construirEtiquetasEstado(
+                                    pedidoProvisional,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                            IconButton(
+                              onPressed: () => Navigator.of(dialogContext).pop(),
+                              tooltip: 'Cerrar',
+                              icon: const Icon(
+                                Icons.close_rounded,
+                                color: _grisTexto,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Flexible(
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final esDialogoEscritorio =
+                                constraints.maxWidth >= 680;
+                            final seccionProductos = _construirSeccionDetalle(
+                              titulo:
+                                  'Productos (${pedidoProvisional.items.length})',
+                              child: pedidoProvisional.items.isEmpty
+                                  ? const Text(
+                                      'Este pedido no tiene productos registrados.',
+                                      style: TextStyle(
+                                        fontSize: 13.5,
+                                        color: _grisTexto,
+                                      ),
+                                    )
+                                  : Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        for (
+                                          var i = 0;
+                                          i < pedidoProvisional.items.length;
+                                          i++
+                                        ) ...[
+                                          _construirItemDetalle(
+                                            pedidoProvisional.items[i],
+                                            esEscritorio: esDialogoEscritorio,
+                                            onEstadoSeleccionado: (nuevoEstado) {
+                                              final itemId = pedidoProvisional
+                                                  .items[i]
+                                                  .itemId;
+                                              if (estadosProvisionales[itemId] ==
+                                                  nuevoEstado) {
+                                                return;
+                                              }
+                                              setDialogState(() {
+                                                estadosProvisionales[itemId] =
+                                                    nuevoEstado;
+                                              });
+                                            },
+                                          ),
+                                          if (i <
+                                              pedidoProvisional.items.length -
+                                                  1)
+                                            SizedBox(
+                                              height:
+                                                  esDialogoEscritorio ? 8 : 10,
+                                            ),
+                                        ],
+                                      ],
+                                    ),
+                            );
+                            final seccionResumen = _construirSeccionDetalle(
+                              titulo: 'Resumen económico',
+                              child: _construirResumenEconomicoDetalle(
+                                pedidoProvisional,
+                              ),
+                            );
+
+                            return SingleChildScrollView(
+                              padding: EdgeInsets.all(
+                                esDialogoEscritorio ? 20 : 16,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  _construirSeccionDetalle(
+                                    titulo: 'Información general',
+                                    child: esDialogoEscritorio
+                                        ? _construirInfoGeneralEscritorio(
+                                            pedidoProvisional,
+                                          )
+                                        : _construirInfoGeneralMovil(
+                                            pedidoProvisional,
+                                          ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  _construirSeccionProgresoProduccion(
+                                    pedidoProvisional,
+                                    esEscritorio: esDialogoEscritorio,
+                                    hayCambiosSinGuardar:
+                                        hayCambiosProvisionales,
+                                  ),
+                                  SizedBox(
+                                    height: esDialogoEscritorio ? 16 : 14,
+                                  ),
+                                  if (esDialogoEscritorio)
+                                    Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Expanded(
+                                          flex: 7,
+                                          child: seccionProductos,
+                                        ),
+                                        const SizedBox(width: 16),
+                                        Expanded(
+                                          flex: 4,
+                                          child: seccionResumen,
+                                        ),
+                                      ],
+                                    )
+                                  else ...[
+                                    seccionProductos,
+                                    const SizedBox(height: 14),
+                                    seccionResumen,
+                                  ],
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+                        decoration: const BoxDecoration(
+                          border: Border(top: BorderSide(color: _bordeSuave)),
+                        ),
+                        child: Row(
+                          children: [
+                            if (hayCambiosProvisionales)
+                              const Expanded(
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.info_outline_rounded,
+                                      size: 16,
+                                      color: Color(0xFFB45309),
+                                    ),
+                                    SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        'Cambios provisionales sin guardar',
+                                        style: TextStyle(
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFFB45309),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            else
+                              const Spacer(),
+                            const SizedBox(width: 12),
+                            ElevatedButton(
+                              onPressed: () =>
+                                  Navigator.of(dialogContext).pop(),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _rojoMarca,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 22,
+                                  vertical: 12,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: const Text('Cerrar'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
         );
       },
     );
@@ -1141,6 +1226,7 @@ class _PedidosViewState extends State<PedidosView> {
   Widget _construirSeccionProgresoProduccion(
     Pedido pedido, {
     required bool esEscritorio,
+    bool hayCambiosSinGuardar = false,
   }) {
     var totalUnidades = 0;
     var unidadesTerminadas = 0;
@@ -1203,6 +1289,17 @@ class _PedidosViewState extends State<PedidosView> {
               valueColor: AlwaysStoppedAnimation<Color>(colorProgreso),
             ),
           ),
+          if (hayCambiosSinGuardar) ...[
+            const SizedBox(height: 8),
+            const Text(
+              'Vista previa local: los cambios seleccionados aún no se han guardado en Firestore.',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFFB45309),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -1211,6 +1308,7 @@ class _PedidosViewState extends State<PedidosView> {
   Widget _construirItemDetalle(
     PedidoItem item, {
     required bool esEscritorio,
+    ValueChanged<EstadoElaboracionPedido>? onEstadoSeleccionado,
   }) {
     final nota = item.notaPersonalizacion.trim();
 
@@ -1258,6 +1356,9 @@ class _PedidosViewState extends State<PedidosView> {
                   activo: estado == item.estadoElaboracion,
                   completado: estado.index < item.estadoElaboracion.index,
                   color: _colorProduccion(estado),
+                  onTap: onEstadoSeleccionado != null
+                      ? () => onEstadoSeleccionado(estado)
+                      : null,
                 ),
             ],
           ),
@@ -1558,22 +1659,20 @@ class _MiniEstadoProduccion extends StatelessWidget {
   final bool activo;
   final bool completado;
   final Color color;
+  final VoidCallback? onTap;
 
   const _MiniEstadoProduccion({
     required this.estado,
     required this.activo,
     required this.completado,
     required this.color,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final IconData icono;
-    if (activo && estado == EstadoElaboracionPedido.terminado) {
-      icono = Icons.check_circle_rounded;
-    } else if (activo && estado == EstadoElaboracionPedido.enProceso) {
-      icono = Icons.timelapse_rounded;
-    } else if (activo) {
+    if (activo) {
       icono = Icons.radio_button_checked_rounded;
     } else if (completado) {
       icono = Icons.check_rounded;
@@ -1599,27 +1698,34 @@ class _MiniEstadoProduccion extends StatelessWidget {
       colorBorde = const Color(0xFFE0E0E0);
     }
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: colorFondo,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: colorBorde),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icono, size: 13, color: colorTexto),
-          const SizedBox(width: 4),
-          Text(
-            estado.etiqueta,
-            style: TextStyle(
-              fontSize: 11.5,
-              fontWeight: activo ? FontWeight.w700 : FontWeight.w600,
-              color: colorTexto,
-            ),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: colorFondo,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: colorBorde),
           ),
-        ],
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icono, size: 13, color: colorTexto),
+              const SizedBox(width: 4),
+              Text(
+                estado.etiqueta,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: activo ? FontWeight.w700 : FontWeight.w600,
+                  color: colorTexto,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
