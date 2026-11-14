@@ -960,6 +960,13 @@ class _PedidosViewState extends State<PedidosView> {
                                     : _construirInfoGeneralMovil(pedido),
                               ),
                               SizedBox(
+                                height: esDialogoEscritorio ? 12 : 12,
+                              ),
+                              _construirSeccionProgresoProduccion(
+                                pedido,
+                                esEscritorio: esDialogoEscritorio,
+                              ),
+                              SizedBox(
                                 height: esDialogoEscritorio ? 16 : 14,
                               ),
                               if (esDialogoEscritorio)
@@ -1131,6 +1138,76 @@ class _PedidosViewState extends State<PedidosView> {
     );
   }
 
+  Widget _construirSeccionProgresoProduccion(
+    Pedido pedido, {
+    required bool esEscritorio,
+  }) {
+    var totalUnidades = 0;
+    var unidadesTerminadas = 0;
+    for (final item in pedido.items) {
+      totalUnidades += item.cantidad;
+      if (item.estadoElaboracion == EstadoElaboracionPedido.terminado) {
+        unidadesTerminadas += item.cantidad;
+      }
+    }
+
+    final progreso = totalUnidades == 0
+        ? 0.0
+        : (unidadesTerminadas / totalUnidades).clamp(0.0, 1.0);
+    final porcentaje = totalUnidades == 0
+        ? 0
+        : ((unidadesTerminadas / totalUnidades) * 100).round();
+    final colorProgreso = porcentaje == 100
+        ? const Color(0xFF2E7D32)
+        : _rojoMarca;
+    final textoAccesorios = totalUnidades == 1
+        ? '$unidadesTerminadas de $totalUnidades accesorio terminado'
+        : '$unidadesTerminadas de $totalUnidades accesorios terminados';
+
+    return _construirSeccionDetalle(
+      titulo: 'Progreso de producción',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 12,
+            runSpacing: 4,
+            children: [
+              Text(
+                textoAccesorios,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: _negroElegante,
+                ),
+              ),
+              Text(
+                '$porcentaje %',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: colorProgreso,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: esEscritorio ? 8 : 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: progreso,
+              minHeight: 9,
+              backgroundColor: _rosaSuave,
+              valueColor: AlwaysStoppedAnimation<Color>(colorProgreso),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _construirItemDetalle(
     PedidoItem item, {
     required bool esEscritorio,
@@ -1147,26 +1224,13 @@ class _PedidosViewState extends State<PedidosView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Text(
-                  item.nombre,
-                  style: TextStyle(
-                    fontSize: esEscritorio ? 14 : 14.5,
-                    fontWeight: FontWeight.w700,
-                    color: _negroElegante,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              _ChipEstado(
-                prefijo: 'Elaboración',
-                etiqueta: item.estadoElaboracion.etiqueta,
-                color: _colorProduccion(item.estadoElaboracion),
-              ),
-            ],
+          Text(
+            item.nombre,
+            style: TextStyle(
+              fontSize: esEscritorio ? 14 : 14.5,
+              fontWeight: FontWeight.w700,
+              color: _negroElegante,
+            ),
           ),
           SizedBox(height: esEscritorio ? 6 : 8),
           Wrap(
@@ -1181,6 +1245,20 @@ class _PedidosViewState extends State<PedidosView> {
                 'Precio unitario: L. ${item.precioUnitario.toStringAsFixed(2)}',
                 style: const TextStyle(fontSize: 13, color: _grisTexto),
               ),
+            ],
+          ),
+          SizedBox(height: esEscritorio ? 7 : 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final estado in EstadoElaboracionPedido.values)
+                _MiniEstadoProduccion(
+                  estado: estado,
+                  activo: estado == item.estadoElaboracion,
+                  completado: estado.index < item.estadoElaboracion.index,
+                  color: _colorProduccion(estado),
+                ),
             ],
           ),
           SizedBox(height: esEscritorio ? 6 : 8),
@@ -1471,6 +1549,78 @@ class _FilaMontoDetalle extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _MiniEstadoProduccion extends StatelessWidget {
+  final EstadoElaboracionPedido estado;
+  final bool activo;
+  final bool completado;
+  final Color color;
+
+  const _MiniEstadoProduccion({
+    required this.estado,
+    required this.activo,
+    required this.completado,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final IconData icono;
+    if (activo && estado == EstadoElaboracionPedido.terminado) {
+      icono = Icons.check_circle_rounded;
+    } else if (activo && estado == EstadoElaboracionPedido.enProceso) {
+      icono = Icons.timelapse_rounded;
+    } else if (activo) {
+      icono = Icons.radio_button_checked_rounded;
+    } else if (completado) {
+      icono = Icons.check_rounded;
+    } else {
+      icono = Icons.radio_button_unchecked_rounded;
+    }
+
+    final Color colorTexto;
+    final Color colorFondo;
+    final Color colorBorde;
+
+    if (activo) {
+      colorTexto = color;
+      colorFondo = color.withValues(alpha: 0.14);
+      colorBorde = color.withValues(alpha: 0.55);
+    } else if (completado) {
+      colorTexto = color.withValues(alpha: 0.80);
+      colorFondo = color.withValues(alpha: 0.06);
+      colorBorde = color.withValues(alpha: 0.25);
+    } else {
+      colorTexto = const Color(0xFF8C8586);
+      colorFondo = const Color(0xFFF5F5F5);
+      colorBorde = const Color(0xFFE0E0E0);
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: colorFondo,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: colorBorde),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icono, size: 13, color: colorTexto),
+          const SizedBox(width: 4),
+          Text(
+            estado.etiqueta,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: activo ? FontWeight.w700 : FontWeight.w600,
+              color: colorTexto,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
