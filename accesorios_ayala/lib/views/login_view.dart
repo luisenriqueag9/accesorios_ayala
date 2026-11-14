@@ -16,6 +16,10 @@ class _LoginViewState extends State<LoginView> {
   final FocusNode _passFocusNode = FocusNode();
   bool _iniciandoSesion = false;
   bool _ocultarPassword = true;
+  bool _recordarCorreo = true;
+  bool _usuarioEditoCorreo = false;
+  bool _usuarioCambioRecordar = false;
+  bool _aplicandoCorreoGuardado = false;
 
   static const Color _rojoPrincipal = Color(0xFFD9232E);
   static const Color _rosaSuave = Color(0xFFFFF1F1);
@@ -26,22 +30,58 @@ class _LoginViewState extends State<LoginView> {
   @override
   void initState() {
     super.initState();
+    _auth.userCtrl.addListener(_alEditarCorreo);
     _cargarUltimoCorreo();
   }
 
+  void _alEditarCorreo() {
+    if (!_aplicandoCorreoGuardado) {
+      _usuarioEditoCorreo = true;
+    }
+  }
+
   Future<void> _cargarUltimoCorreo() async {
-    final correoGuardado = await AuthController.obtenerUltimoCorreoGuardado();
-    if (!mounted || correoGuardado == null || correoGuardado.trim().isEmpty) {
+    final recordar = await AuthController.obtenerPreferenciaRecordarCorreo();
+    if (!mounted) return;
+
+    final recordarEfectivo =
+        _usuarioCambioRecordar ? _recordarCorreo : recordar;
+
+    if (!_usuarioCambioRecordar && _recordarCorreo != recordar) {
+      setState(() {
+        _recordarCorreo = recordar;
+      });
+    }
+
+    if (!recordarEfectivo) {
       return;
     }
 
-    if (_auth.userCtrl.text.isEmpty) {
-      _auth.userCtrl.text = correoGuardado.trim();
+    final correoGuardado = await AuthController.obtenerUltimoCorreoGuardado();
+    if (!mounted ||
+        _usuarioEditoCorreo ||
+        _auth.userCtrl.text.isNotEmpty ||
+        correoGuardado == null ||
+        correoGuardado.trim().isEmpty) {
+      return;
     }
+
+    _aplicandoCorreoGuardado = true;
+    _auth.userCtrl.text = correoGuardado.trim();
+    _aplicandoCorreoGuardado = false;
+  }
+
+  Future<void> _alternarRecordarCorreo(bool recordar) async {
+    _usuarioCambioRecordar = true;
+    setState(() {
+      _recordarCorreo = recordar;
+    });
+    await AuthController.guardarPreferenciaRecordarCorreo(recordar);
   }
 
   @override
   void dispose() {
+    _auth.userCtrl.removeListener(_alEditarCorreo);
     _passFocusNode.dispose();
     _auth.dispose();
     super.dispose();
@@ -55,7 +95,7 @@ class _LoginViewState extends State<LoginView> {
     });
 
     try {
-      await _auth.login(context);
+      await _auth.login(context, recordarCorreo: _recordarCorreo);
     } finally {
       if (mounted) {
         setState(() {
@@ -278,7 +318,55 @@ class _LoginViewState extends State<LoginView> {
                                 },
                               ),
                             ),
-                            const SizedBox(height: 26),
+                            const SizedBox(height: 10),
+                            InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: _iniciandoSesion
+                                  ? null
+                                  : () => _alternarRecordarCorreo(
+                                        !_recordarCorreo,
+                                      ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 4,
+                                ),
+                                child: Row(
+                                  children: [
+                                    SizedBox(
+                                      width: 24,
+                                      height: 24,
+                                      child: Checkbox(
+                                        value: _recordarCorreo,
+                                        activeColor: _rojoPrincipal,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            5,
+                                          ),
+                                        ),
+                                        onChanged: _iniciandoSesion
+                                            ? null
+                                            : (valor) =>
+                                                _alternarRecordarCorreo(
+                                                  valor ?? false,
+                                                ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    const Expanded(
+                                      child: Text(
+                                        'Recordar mi correo',
+                                        style: TextStyle(
+                                          fontSize: 13.5,
+                                          fontWeight: FontWeight.w500,
+                                          color: _negroElegante,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 20),
 
                             // Botón de ingreso
                             MouseRegion(

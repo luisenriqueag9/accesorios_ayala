@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthController {
   static const String _claveUltimoCorreo = 'admin_ultimo_correo';
+  static const String _claveRecordarCorreo = 'admin_recordar_correo';
 
   static const Set<String> uidsAdminAutorizados = {
     'sK72fiKvY0crBfUzpP4TuqnHhBE3',
@@ -13,6 +14,27 @@ class AuthController {
   static bool esAdminAutorizado(User? user) {
     if (user == null) return false;
     return uidsAdminAutorizados.contains(user.uid);
+  }
+
+  static Future<bool> obtenerPreferenciaRecordarCorreo() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(_claveRecordarCorreo) ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  static Future<void> guardarPreferenciaRecordarCorreo(bool recordar) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_claveRecordarCorreo, recordar);
+      if (!recordar) {
+        await prefs.remove(_claveUltimoCorreo);
+      }
+    } catch (_) {
+      // No bloquear la interfaz si falla el almacenamiento local.
+    }
   }
 
   static Future<String?> obtenerUltimoCorreoGuardado() async {
@@ -47,7 +69,10 @@ class AuthController {
   }
 
   // Validar e iniciar sesión con Firebase Authentication
-  Future<void> login(BuildContext context) async {
+  Future<void> login(
+    BuildContext context, {
+    bool recordarCorreo = true,
+  }) async {
     final inputEmail = userCtrl.text.trim();
     final inputPass = passCtrl.text;
 
@@ -80,12 +105,17 @@ class AuthController {
         return;
       }
 
-      final correoAutorizado = credencial.user?.email?.trim();
-      await _guardarUltimoCorreo(
-        (correoAutorizado != null && correoAutorizado.isNotEmpty)
-            ? correoAutorizado
-            : inputEmail,
-      );
+      if (recordarCorreo) {
+        final correoAutorizado = credencial.user?.email?.trim();
+        await guardarPreferenciaRecordarCorreo(true);
+        await _guardarUltimoCorreo(
+          (correoAutorizado != null && correoAutorizado.isNotEmpty)
+              ? correoAutorizado
+              : inputEmail,
+        );
+      } else {
+        await guardarPreferenciaRecordarCorreo(false);
+      }
     } on FirebaseAuthException catch (e) {
       if (!context.mounted) return;
 
