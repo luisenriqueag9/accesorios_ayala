@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:accesorios_ayala/controllers/pedido_controller.dart';
 import 'package:accesorios_ayala/models/cliente.dart';
 import 'package:accesorios_ayala/models/pedido.dart';
 import 'package:accesorios_ayala/models/producto.dart';
@@ -55,6 +58,7 @@ void main() {
   Widget construirVistaPrueba({
     List<Producto> productos = const [],
     ValueChanged<List<PedidoItem>>? onItemsCambiados,
+    Future<Pedido> Function(Pedido borrador)? onRegistrarPedido,
   }) {
     return MaterialApp(
       home: Scaffold(
@@ -64,6 +68,7 @@ void main() {
             clientes: clientesPrueba,
             productos: productos,
             onItemsCambiados: onItemsCambiados,
+            onRegistrarPedido: onRegistrarPedido,
           ),
         ),
       ),
@@ -1360,6 +1365,574 @@ void main() {
             of: resumenTotalFinder(),
             matching: find.text('L. 750.00'),
           ),
+          findsOneWidget,
+        );
+      },
+    );
+  });
+
+  group('NuevoPedidoView - Registrar pedido', () {
+    Finder botonRegistrarFinder() {
+      return find.byKey(const ValueKey<String>('boton-registrar-pedido'));
+    }
+
+    Future<void> seleccionarPrimerCliente(WidgetTester tester) async {
+      final buscador = buscadorClientesFinder();
+      await tester.ensureVisible(buscador);
+      await tester.pumpAndSettle();
+      await tester.tap(buscador);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('María José López'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('María José López'));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> agregarPulsera(
+      WidgetTester tester, {
+      int unidades = 1,
+    }) async {
+      final buscadorProductos = find.widgetWithText(
+        TextField,
+        'Buscar producto por nombre',
+      );
+      await tester.ensureVisible(buscadorProductos);
+      await tester.pumpAndSettle();
+      await tester.tap(buscadorProductos);
+      await tester.pumpAndSettle();
+
+      final resultadoPulsera = find.ancestor(
+        of: find.text('Pulsera Ónix Dorado'),
+        matching: find.byType(ListTile),
+      );
+      await tester.ensureVisible(resultadoPulsera);
+      await tester.pumpAndSettle();
+      await tester.tap(resultadoPulsera);
+      await tester.pumpAndSettle();
+
+      for (var i = 1; i < unidades; i++) {
+        await tester.ensureVisible(find.byTooltip('Aumentar cantidad'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Aumentar cantidad'));
+        await tester.pumpAndSettle();
+      }
+    }
+
+    testWidgets(
+      'exige cliente, al menos un producto y envío/descuento válidos antes de guardar',
+      (tester) async {
+        var llamadas = 0;
+
+        await tester.pumpWidget(
+          construirVistaPrueba(
+            productos: productosPrueba,
+            onRegistrarPedido: (borrador) async {
+              llamadas++;
+              return borrador;
+            },
+          ),
+        );
+
+        // 1. Sin cliente
+        await tester.ensureVisible(botonRegistrarFinder());
+        await tester.pumpAndSettle();
+        await tester.tap(botonRegistrarFinder());
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text(
+            'Selecciona un cliente válido antes de registrar el pedido.',
+          ),
+          findsOneWidget,
+        );
+        expect(llamadas, 0);
+
+        // 2. Con cliente pero sin productos
+        await seleccionarPrimerCliente(tester);
+        await tester.ensureVisible(botonRegistrarFinder());
+        await tester.pumpAndSettle();
+        await tester.tap(botonRegistrarFinder());
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text(
+            'Agrega al menos un producto antes de registrar el pedido.',
+          ),
+          findsOneWidget,
+        );
+        expect(llamadas, 0);
+
+        // 3. Con producto pero envío inválido
+        await agregarPulsera(tester);
+        final campoEnvio = find.widgetWithText(TextField, 'Costo de envío (L.)');
+        await tester.ensureVisible(campoEnvio);
+        await tester.pumpAndSettle();
+        await tester.enterText(campoEnvio, '-10');
+        await tester.pump();
+
+        await tester.ensureVisible(botonRegistrarFinder());
+        await tester.pumpAndSettle();
+        await tester.tap(botonRegistrarFinder());
+        await tester.pumpAndSettle();
+
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('banner-error-registro')),
+            matching: find.text('El costo de envío no puede ser negativo.'),
+          ),
+          findsOneWidget,
+        );
+        expect(llamadas, 0);
+
+        // 4. Envío válido pero descuento mayorista inválido
+        await tester.ensureVisible(campoEnvio);
+        await tester.pumpAndSettle();
+        await tester.enterText(campoEnvio, '120.00');
+        await tester.pump();
+
+        final switchMayorista = find.byType(Switch);
+        await tester.ensureVisible(switchMayorista);
+        await tester.pumpAndSettle();
+        await tester.tap(switchMayorista);
+        await tester.pumpAndSettle();
+
+        final campoDescuento = find.widgetWithText(
+          TextField,
+          'Descuento mayorista (%)',
+        );
+        await tester.ensureVisible(campoDescuento);
+        await tester.pumpAndSettle();
+        await tester.enterText(campoDescuento, '150');
+        await tester.pump();
+
+        await tester.ensureVisible(botonRegistrarFinder());
+        await tester.pumpAndSettle();
+        await tester.tap(botonRegistrarFinder());
+        await tester.pumpAndSettle();
+
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('banner-error-registro')),
+            matching: find.text('El descuento debe estar entre 0 y 100%.'),
+          ),
+          findsOneWidget,
+        );
+        expect(llamadas, 0);
+      },
+    );
+
+    testWidgets(
+      'construye el borrador con personalizaciones, fecha, envío y mayorista, sin generar factura ni venta, y muestra confirmación',
+      (tester) async {
+        List<PedidoItem> itemsActuales = const [];
+        Pedido? borradorRecibido;
+
+        await tester.pumpWidget(
+          construirVistaPrueba(
+            productos: productosPrueba,
+            onItemsCambiados: (items) => itemsActuales = items,
+            onRegistrarPedido: (borrador) async {
+              borradorRecibido = borrador;
+              return PedidoController.construirPedidoDefinitivo(
+                borrador: borrador,
+                id: 'doc-ped-1',
+                numeroPedido: 'PED-0001',
+              );
+            },
+          ),
+        );
+
+        await seleccionarPrimerCliente(tester);
+        await agregarPulsera(tester, unidades: 2);
+
+        // Personalizar ambas unidades
+        await tester.ensureVisible(find.text('Personalizar unidades'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Personalizar unidades'));
+        await tester.pumpAndSettle();
+
+        final ids = itemsActuales.map((i) => i.itemId).toList();
+        final campoU1 = find.descendant(
+          of: find.byKey(ValueKey<String>('unidad-${ids[0]}')),
+          matching: find.byType(TextField),
+        );
+        final campoU2 = find.descendant(
+          of: find.byKey(ValueKey<String>('unidad-${ids[1]}')),
+          matching: find.byType(TextField),
+        );
+        await tester.ensureVisible(campoU1);
+        await tester.enterText(campoU1, 'Iniciales M.J.');
+        await tester.ensureVisible(campoU2);
+        await tester.enterText(campoU2, 'Largo 18 cm');
+        await tester.pump();
+
+        // Seleccionar fecha prevista de entrega
+        final selectorFecha = find.ancestor(
+          of: find.text('Fecha prevista de entrega (opcional)'),
+          matching: find.byType(InkWell),
+        );
+        await tester.ensureVisible(selectorFecha);
+        await tester.pumpAndSettle();
+        await tester.tap(selectorFecha);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Confirmar'));
+        await tester.pumpAndSettle();
+
+        // Activar mayorista con 15% y envío 150.00
+        final campoEnvio = find.widgetWithText(TextField, 'Costo de envío (L.)');
+        await tester.ensureVisible(campoEnvio);
+        await tester.pumpAndSettle();
+        await tester.enterText(campoEnvio, '150.00');
+        await tester.pump();
+
+        final switchMayorista = find.byType(Switch);
+        await tester.ensureVisible(switchMayorista);
+        await tester.pumpAndSettle();
+        await tester.tap(switchMayorista);
+        await tester.pumpAndSettle();
+
+        final campoDescuento = find.widgetWithText(
+          TextField,
+          'Descuento mayorista (%)',
+        );
+        await tester.ensureVisible(campoDescuento);
+        await tester.pumpAndSettle();
+        await tester.enterText(campoDescuento, '15');
+        await tester.pump();
+
+        // Registrar pedido
+        await tester.ensureVisible(botonRegistrarFinder());
+        await tester.pumpAndSettle();
+        await tester.tap(botonRegistrarFinder());
+        await tester.pumpAndSettle();
+
+        expect(borradorRecibido, isNotNull);
+        final pedido = borradorRecibido!;
+        expect(pedido.clienteId, 'cli-1');
+        expect(pedido.clienteNombre, 'María José López');
+        expect(pedido.items, hasLength(2));
+        expect(pedido.items[0].itemId, ids[0]);
+        expect(pedido.items[0].cantidad, 1);
+        expect(pedido.items[0].notaPersonalizacion, 'Iniciales M.J.');
+        expect(
+          pedido.items[0].estadoElaboracion,
+          EstadoElaboracionPedido.recibido,
+        );
+        expect(pedido.items[1].itemId, ids[1]);
+        expect(pedido.items[1].cantidad, 1);
+        expect(pedido.items[1].notaPersonalizacion, 'Largo 18 cm');
+
+        final hoy = DateTime.now();
+        expect(pedido.fechaPrevistaEntrega, isNotNull);
+        expect(pedido.fechaPrevistaEntrega!.year, hoy.year);
+        expect(pedido.fechaPrevistaEntrega!.month, hoy.month);
+        expect(pedido.fechaPrevistaEntrega!.day, hoy.day);
+
+        expect(pedido.costoEnvio, 150.0);
+        expect(pedido.borradorFactura.descuentoMayoristaActivo, isTrue);
+        expect(pedido.borradorFactura.descuentoPorcentaje, 15.0);
+        expect(pedido.borradorFactura.impuestoPorcentaje, 0.0);
+        expect(pedido.borradorFactura.costoEnvio, 150.0);
+
+        // No genera factura ni venta
+        expect(pedido.facturado, isFalse);
+        expect(pedido.ventaId, isNull);
+        expect(pedido.facturaNumero, isNull);
+        expect(pedido.fechaFacturacion, isNull);
+
+        expect(
+          find.text('Pedido PED-0001 registrado correctamente.'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'deshabilita el botón durante el guardado y evita doble registro por múltiples pulsaciones',
+      (tester) async {
+        final completer = Completer<Pedido>();
+        var llamadas = 0;
+
+        await tester.pumpWidget(
+          construirVistaPrueba(
+            productos: productosPrueba,
+            onRegistrarPedido: (_) {
+              llamadas++;
+              return completer.future;
+            },
+          ),
+        );
+
+        await seleccionarPrimerCliente(tester);
+        await agregarPulsera(tester);
+
+        await tester.ensureVisible(botonRegistrarFinder());
+        await tester.pumpAndSettle();
+
+        // Primera pulsación inicia guardado
+        await tester.tap(botonRegistrarFinder());
+        await tester.pump();
+
+        expect(llamadas, 1);
+        expect(find.text('Registrando pedido...'), findsOneWidget);
+        final botonEnCarga = tester.widget<ElevatedButton>(
+          botonRegistrarFinder(),
+        );
+        expect(botonEnCarga.onPressed, isNull);
+
+        // Segunda pulsación mientras carga no dispara otra operación
+        await tester.tap(botonRegistrarFinder(), warnIfMissed: false);
+        await tester.pump();
+        expect(llamadas, 1);
+
+        // Completar guardado
+        completer.complete(
+          Pedido(
+            id: 'doc-ped-2',
+            numeroPedido: 'PED-0002',
+            clienteId: 'cli-1',
+            clienteNombre: 'María José López',
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('Pedido PED-0002 registrado correctamente.'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'si falla el guardado muestra error comprensible y conserva todos los datos del formulario',
+      (tester) async {
+        List<PedidoItem> itemsActuales = const [];
+
+        await tester.pumpWidget(
+          construirVistaPrueba(
+            productos: productosPrueba,
+            onItemsCambiados: (items) => itemsActuales = items,
+            onRegistrarPedido: (_) async {
+              throw const PedidoControllerException(
+                tipo: TipoErrorPedido.errorConexion,
+                mensaje: 'No hay conexión con el servidor.',
+              );
+            },
+          ),
+        );
+
+        await seleccionarPrimerCliente(tester);
+        await agregarPulsera(tester);
+
+        await tester.ensureVisible(find.text('Personalizar unidades'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Personalizar unidades'));
+        await tester.pumpAndSettle();
+
+        final primerId = itemsActuales.single.itemId;
+        final campoU1 = find.descendant(
+          of: find.byKey(ValueKey<String>('unidad-$primerId')),
+          matching: find.byType(TextField),
+        );
+        await tester.ensureVisible(campoU1);
+        await tester.enterText(campoU1, 'Grabado urgente');
+        await tester.pump();
+
+        await tester.ensureVisible(botonRegistrarFinder());
+        await tester.pumpAndSettle();
+        await tester.tap(botonRegistrarFinder());
+        await tester.pumpAndSettle();
+
+        expect(find.text('No hay conexión con el servidor.'), findsOneWidget);
+        // Se conservan cliente, producto, personalización y envío
+        expect(find.text('María José López'), findsOneWidget);
+        expect(itemsActuales, hasLength(1));
+        expect(itemsActuales.single.notaPersonalizacion, 'Grabado urgente');
+        expect(
+          tester
+              .widget<TextField>(
+                find.widgetWithText(TextField, 'Costo de envío (L.)'),
+              )
+              .controller
+              ?.text,
+          '120.00',
+        );
+      },
+    );
+
+    testWidgets(
+      'tras el registro exitoso deshabilita Registrar pedido hasta pulsar Nuevo pedido, restablece el formulario y permite registrar otro',
+      (tester) async {
+        List<PedidoItem> itemsActuales = const [];
+        var llamadas = 0;
+
+        await tester.pumpWidget(
+          construirVistaPrueba(
+            productos: productosPrueba,
+            onItemsCambiados: (items) => itemsActuales = items,
+            onRegistrarPedido: (borrador) async {
+              llamadas++;
+              return PedidoController.construirPedidoDefinitivo(
+                borrador: borrador,
+                id: 'doc-ped-$llamadas',
+                numeroPedido: 'PED-000$llamadas',
+              );
+            },
+          ),
+        );
+
+        await seleccionarPrimerCliente(tester);
+        await agregarPulsera(tester);
+
+        // Configurar fecha, envío distinto y mayorista
+        final selectorFecha = find.ancestor(
+          of: find.text('Fecha prevista de entrega (opcional)'),
+          matching: find.byType(InkWell),
+        );
+        await tester.ensureVisible(selectorFecha);
+        await tester.pumpAndSettle();
+        await tester.tap(selectorFecha);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Confirmar'));
+        await tester.pumpAndSettle();
+
+        final campoEnvio = find.widgetWithText(TextField, 'Costo de envío (L.)');
+        await tester.ensureVisible(campoEnvio);
+        await tester.pumpAndSettle();
+        await tester.enterText(campoEnvio, '180.00');
+        await tester.pump();
+
+        final switchMayorista = find.byType(Switch);
+        await tester.ensureVisible(switchMayorista);
+        await tester.pumpAndSettle();
+        await tester.tap(switchMayorista);
+        await tester.pumpAndSettle();
+
+        final campoDescuento = find.widgetWithText(
+          TextField,
+          'Descuento mayorista (%)',
+        );
+        await tester.ensureVisible(campoDescuento);
+        await tester.pumpAndSettle();
+        await tester.enterText(campoDescuento, '15');
+        await tester.pump();
+
+        // Registrar primer pedido
+        await tester.ensureVisible(botonRegistrarFinder());
+        await tester.pumpAndSettle();
+        await tester.tap(botonRegistrarFinder());
+        await tester.pumpAndSettle();
+
+        expect(llamadas, 1);
+        expect(
+          find.text('Pedido PED-0001 registrado correctamente.'),
+          findsOneWidget,
+        );
+        // Botón Registrar pedido queda deshabilitado tras éxito y no limpia automáticamente
+        expect(
+          tester.widget<ElevatedButton>(botonRegistrarFinder()).onPressed,
+          isNull,
+        );
+        expect(find.text('María José López'), findsOneWidget);
+        expect(itemsActuales, hasLength(1));
+
+        await tester.tap(botonRegistrarFinder(), warnIfMissed: false);
+        await tester.pump();
+        expect(llamadas, 1);
+
+        // Pulsar "Nuevo pedido" restablece todo el formulario
+        final botonNuevoPedido = find.byKey(
+          const ValueKey<String>('boton-nuevo-pedido'),
+        );
+        await tester.ensureVisible(botonNuevoPedido);
+        await tester.pumpAndSettle();
+        await tester.tap(botonNuevoPedido);
+        await tester.pumpAndSettle();
+
+        expect(itemsActuales, isEmpty);
+        expect(find.text('María José López'), findsNothing);
+        expect(find.text('Sin fecha seleccionada'), findsOneWidget);
+        expect(
+          tester.widget<TextField>(campoEnvio).controller?.text,
+          '120.00',
+        );
+        expect(tester.widget<Switch>(switchMayorista).value, isFalse);
+
+        // Activar mayorista comprueba que porcentaje volvió a 20
+        await tester.ensureVisible(switchMayorista);
+        await tester.pumpAndSettle();
+        await tester.tap(switchMayorista);
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<TextField>(campoDescuento).controller?.text,
+          '20',
+        );
+        await tester.tap(switchMayorista);
+        await tester.pumpAndSettle();
+
+        // Registrar un segundo pedido tras reiniciar
+        await seleccionarPrimerCliente(tester);
+        await agregarPulsera(tester);
+        await tester.ensureVisible(botonRegistrarFinder());
+        await tester.pumpAndSettle();
+        await tester.tap(botonRegistrarFinder());
+        await tester.pumpAndSettle();
+
+        expect(llamadas, 2);
+        expect(
+          find.text('Pedido PED-0002 registrado correctamente.'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'un error de guardado conserva el formulario y permite reintentar exitosamente',
+      (tester) async {
+        var intento = 0;
+
+        await tester.pumpWidget(
+          construirVistaPrueba(
+            productos: productosPrueba,
+            onRegistrarPedido: (borrador) async {
+              intento++;
+              if (intento == 1) {
+                throw const PedidoControllerException(
+                  tipo: TipoErrorPedido.errorConexion,
+                  mensaje: 'Fallo temporal de red.',
+                );
+              }
+              return PedidoController.construirPedidoDefinitivo(
+                borrador: borrador,
+                id: 'doc-ped-reintento',
+                numeroPedido: 'PED-0003',
+              );
+            },
+          ),
+        );
+
+        await seleccionarPrimerCliente(tester);
+        await agregarPulsera(tester);
+
+        await tester.ensureVisible(botonRegistrarFinder());
+        await tester.pumpAndSettle();
+        await tester.tap(botonRegistrarFinder());
+        await tester.pumpAndSettle();
+
+        expect(find.text('Fallo temporal de red.'), findsOneWidget);
+        expect(
+          tester.widget<ElevatedButton>(botonRegistrarFinder()).onPressed,
+          isNotNull,
+        );
+
+        // Reintentar sin volver a llenar nada
+        await tester.tap(botonRegistrarFinder());
+        await tester.pumpAndSettle();
+
+        expect(intento, 2);
+        expect(find.text('Fallo temporal de red.'), findsNothing);
+        expect(
+          find.text('Pedido PED-0003 registrado correctamente.'),
           findsOneWidget,
         );
       },

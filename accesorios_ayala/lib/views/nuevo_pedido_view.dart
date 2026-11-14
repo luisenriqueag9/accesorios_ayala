@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../controllers/cliente_controller.dart';
+import '../controllers/pedido_controller.dart';
 import '../controllers/producto_controller.dart';
 import '../models/cliente.dart';
 import '../models/pedido.dart';
@@ -12,12 +13,15 @@ class NuevoPedidoView extends StatefulWidget {
   final List<Producto>? productos;
   @visibleForTesting
   final ValueChanged<List<PedidoItem>>? onItemsCambiados;
+  @visibleForTesting
+  final Future<Pedido> Function(Pedido borrador)? onRegistrarPedido;
 
   const NuevoPedidoView({
     super.key,
     this.clientes = const [],
     this.productos,
     this.onItemsCambiados,
+    this.onRegistrarPedido,
   });
 
   @override
@@ -61,6 +65,12 @@ class _NuevoPedidoViewState extends State<NuevoPedidoView> {
   bool _descuentoMayoristaActivo = false;
   double? _descuentoPorcentajeValido = 20.0;
   String? _errorDescuento;
+  bool _guardandoPedido = false;
+  Pedido? _pedidoRegistrado;
+  String? _mensajeErrorRegistro;
+  String? _mensajeExitoRegistro;
+
+  bool get _yaRegistrado => _pedidoRegistrado != null;
 
   double get _subtotalGeneral =>
       _itemsSeleccionados.fold(0.0, (total, item) => total + item.subtotal);
@@ -629,6 +639,179 @@ class _NuevoPedidoViewState extends State<NuevoPedidoView> {
 
   String _formatearPorcentaje(double valor) {
     return valor % 1 == 0 ? valor.toStringAsFixed(0) : valor.toStringAsFixed(2);
+  }
+
+  void _iniciarNuevoPedido() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    for (final ctrl in _personalizacionCtrls.values) {
+      ctrl.dispose();
+    }
+    _personalizacionCtrls.clear();
+
+    setState(() {
+      _pedidoRegistrado = null;
+      _mensajeExitoRegistro = null;
+      _mensajeErrorRegistro = null;
+
+      _clienteSeleccionado = null;
+      _buscarCtrl.clear();
+      _mostrarResultados = false;
+
+      _itemsSeleccionados.clear();
+      _buscarProductoCtrl.clear();
+      _mostrarResultadosProductos = false;
+      _avisoProducto = null;
+
+      _fechaPrevistaEntrega = null;
+
+      _costoEnvioCtrl.text = '120.00';
+      _costoEnvioValido = 120.0;
+      _errorCostoEnvio = null;
+
+      _descuentoMayoristaActivo = false;
+      _descuentoCtrl.text = '20';
+      _descuentoPorcentajeValido = 20.0;
+      _errorDescuento = null;
+    });
+
+    _notificarItemsCambiados();
+  }
+
+  Future<void> _registrarPedido() async {
+    if (_guardandoPedido || _yaRegistrado) return;
+
+    final cliente = _clienteSeleccionado;
+    if (cliente == null ||
+        cliente.id.trim().isEmpty ||
+        cliente.nombre.trim().isEmpty) {
+      setState(() {
+        _mensajeErrorRegistro =
+            'Selecciona un cliente válido antes de registrar el pedido.';
+        _mensajeExitoRegistro = null;
+      });
+      return;
+    }
+
+    if (_itemsSeleccionados.isEmpty) {
+      setState(() {
+        _mensajeErrorRegistro =
+            'Agrega al menos un producto antes de registrar el pedido.';
+        _mensajeExitoRegistro = null;
+      });
+      return;
+    }
+
+    for (final item in _itemsSeleccionados) {
+      if (!_esPrecioValido(item.precioUnitario) || item.cantidad < 1) {
+        setState(() {
+          _mensajeErrorRegistro =
+              'Uno o más productos tienen un precio o cantidad inválida.';
+          _mensajeExitoRegistro = null;
+        });
+        return;
+      }
+    }
+
+    final envioValido = _costoEnvioValido;
+    if (envioValido == null) {
+      setState(() {
+        _mensajeErrorRegistro =
+            _errorCostoEnvio ?? 'Corrige el costo de envío antes de guardar.';
+        _mensajeExitoRegistro = null;
+      });
+      return;
+    }
+
+    final descuentoValido =
+        _descuentoMayoristaActivo ? _descuentoPorcentajeValido : 0.0;
+    if (descuentoValido == null) {
+      setState(() {
+        _mensajeErrorRegistro =
+            _errorDescuento ??
+            'Corrige el porcentaje de descuento mayorista antes de guardar.';
+        _mensajeExitoRegistro = null;
+      });
+      return;
+    }
+
+    final borrador = Pedido(
+      id: '',
+      numeroPedido: '',
+      clienteId: cliente.id.trim(),
+      clienteNombre: cliente.nombre.trim(),
+      clienteTelefono: cliente.telefono.trim(),
+      clienteDireccion: cliente.direccion.trim(),
+      clienteDepartamento: cliente.departamento.trim(),
+      items: List<PedidoItem>.from(_itemsSeleccionados),
+      estadoEnvio: EstadoEnvioPedido.pendiente,
+      costoEnvio: envioValido,
+      borradorFactura: BorradorFacturaPedido(
+        impuestoPorcentaje: 0.0,
+        descuentoMayoristaActivo: _descuentoMayoristaActivo,
+        descuentoPorcentaje: descuentoValido,
+        costoEnvio: envioValido,
+      ),
+      facturado: false,
+      ventaId: null,
+      facturaNumero: null,
+      fechaPrevistaEntrega: _fechaPrevistaEntrega,
+      fechaEnvio: null,
+      fechaEntrega: null,
+      fechaFacturacion: null,
+      createdAt: null,
+      updatedAt: null,
+    );
+
+    try {
+      PedidoController.validarBorradorParaCreacion(borrador);
+    } on PedidoControllerException catch (e) {
+      setState(() {
+        _mensajeErrorRegistro = e.mensaje;
+        _mensajeExitoRegistro = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _guardandoPedido = true;
+      _mensajeErrorRegistro = null;
+      _mensajeExitoRegistro = null;
+    });
+
+    try {
+      final guardar =
+          widget.onRegistrarPedido ??
+          (Pedido p) => PedidoController.crearPedido(p);
+      final pedidoRegistrado = await guardar(borrador);
+      if (!mounted) return;
+
+      final numero = pedidoRegistrado.numeroPedido.trim().isNotEmpty
+          ? pedidoRegistrado.numeroPedido.trim()
+          : pedidoRegistrado.id;
+      setState(() {
+        _pedidoRegistrado = pedidoRegistrado;
+        _mensajeExitoRegistro = numero.isNotEmpty
+            ? 'Pedido $numero registrado correctamente.'
+            : 'Pedido registrado correctamente.';
+      });
+    } on PedidoControllerException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _mensajeErrorRegistro = e.mensaje;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _mensajeErrorRegistro =
+            'No se pudo registrar el pedido. Intenta nuevamente.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _guardandoPedido = false;
+        });
+      }
+    }
   }
 
   @override
@@ -1708,6 +1891,135 @@ class _NuevoPedidoViewState extends State<NuevoPedidoView> {
                   ? 'Corrige el costo de envío para calcular el total estimado.'
                   : 'Corrige el descuento mayorista para calcular el total estimado.',
             ),
+          if (_mensajeErrorRegistro != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              key: const ValueKey<String>('banner-error-registro'),
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.error_outline_rounded,
+                    color: Colors.red.shade700,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _mensajeErrorRegistro!,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.red.shade900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (_mensajeExitoRegistro != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              key: const ValueKey<String>('banner-exito-registro'),
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.green.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.check_circle_outline_rounded,
+                    color: Colors.green.shade700,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _mensajeExitoRegistro!,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.green.shade900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 48,
+            child: ElevatedButton.icon(
+              key: const ValueKey<String>('boton-registrar-pedido'),
+              onPressed: (_guardandoPedido || _yaRegistrado)
+                  ? null
+                  : _registrarPedido,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _rojoMarca,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: _rojoMarca.withValues(alpha: 0.55),
+                disabledForegroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              icon: _guardandoPedido
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.save_outlined),
+              label: Text(
+                _guardandoPedido
+                    ? 'Registrando pedido...'
+                    : 'Registrar pedido',
+                style: const TextStyle(
+                  fontSize: 15.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+          if (_yaRegistrado) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 46,
+              child: OutlinedButton.icon(
+                key: const ValueKey<String>('boton-nuevo-pedido'),
+                onPressed: _iniciarNuevoPedido,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _rojoMarca,
+                  side: const BorderSide(color: _rojoMarca, width: 1.4),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                icon: const Icon(Icons.add_circle_outline_rounded),
+                label: const Text(
+                  'Nuevo pedido',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
