@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../controllers/cliente_controller.dart';
@@ -9,11 +10,14 @@ import '../models/producto.dart';
 class NuevoPedidoView extends StatefulWidget {
   final List<Cliente> clientes;
   final List<Producto>? productos;
+  @visibleForTesting
+  final ValueChanged<List<PedidoItem>>? onItemsCambiados;
 
   const NuevoPedidoView({
     super.key,
     this.clientes = const [],
     this.productos,
+    this.onItemsCambiados,
   });
 
   @override
@@ -42,6 +46,8 @@ class _NuevoPedidoViewState extends State<NuevoPedidoView> {
   bool _errorProductos = false;
   bool _mostrarResultadosProductos = false;
   final List<PedidoItem> _itemsSeleccionados = [];
+  final Map<String, TextEditingController> _personalizacionCtrls = {};
+  int _siguienteSecuenciaItem = 1;
   String? _avisoProducto;
 
   double get _subtotalGeneral =>
@@ -89,6 +95,10 @@ class _NuevoPedidoViewState extends State<NuevoPedidoView> {
   void dispose() {
     _buscarCtrl.dispose();
     _buscarProductoCtrl.dispose();
+    for (final ctrl in _personalizacionCtrls.values) {
+      ctrl.dispose();
+    }
+    _personalizacionCtrls.clear();
     super.dispose();
   }
 
@@ -244,6 +254,102 @@ class _NuevoPedidoViewState extends State<NuevoPedidoView> {
     });
   }
 
+  PedidoItem _crearUnidadItem({
+    required String productoId,
+    required String nombre,
+    required double precioUnitario,
+    required String imageUrl,
+  }) {
+    return PedidoItem(
+      itemId: 'item-$productoId-${_siguienteSecuenciaItem++}',
+      productoId: productoId,
+      nombre: nombre,
+      cantidad: 1,
+      precioUnitario: precioUnitario,
+      imageUrl: imageUrl,
+      notaPersonalizacion: '',
+      estadoElaboracion: EstadoElaboracionPedido.recibido,
+    );
+  }
+
+  void _notificarItemsCambiados() {
+    widget.onItemsCambiados?.call(List.unmodifiable(_itemsSeleccionados));
+  }
+
+  TextEditingController _obtenerControladorPersonalizacion(PedidoItem unidad) {
+    return _personalizacionCtrls.putIfAbsent(
+      unidad.itemId,
+      () => TextEditingController(text: unidad.notaPersonalizacion),
+    );
+  }
+
+  void _liberarControladoresDeItems(Iterable<String> itemIds) {
+    for (final id in itemIds) {
+      _personalizacionCtrls.remove(id)?.dispose();
+    }
+  }
+
+  void _actualizarPersonalizacion(String itemId, String nota) {
+    final indice = _itemsSeleccionados.indexWhere(
+      (item) => item.itemId == itemId,
+    );
+    if (indice < 0) return;
+
+    final actual = _itemsSeleccionados[indice];
+    if (actual.notaPersonalizacion == nota) return;
+
+    _itemsSeleccionados[indice] = actual.copyWith(notaPersonalizacion: nota);
+    _notificarItemsCambiados();
+  }
+
+  Future<bool> _confirmarAccion({
+    required String titulo,
+    required String mensaje,
+    required String textoConfirmar,
+  }) async {
+    final resultado = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(titulo),
+          content: Text(mensaje),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              style: TextButton.styleFrom(foregroundColor: _rojoMarca),
+              child: Text(textoConfirmar),
+            ),
+          ],
+        );
+      },
+    );
+    return resultado ?? false;
+  }
+
+  List<_GrupoProductoPedido> _agruparItemsSeleccionados() {
+    final grupos = <String, _GrupoProductoPedido>{};
+    for (final item in _itemsSeleccionados) {
+      final existente = grupos[item.productoId];
+      if (existente == null) {
+        grupos[item.productoId] = _GrupoProductoPedido(
+          productoId: item.productoId,
+          nombre: item.nombre,
+          precioUnitario: item.precioUnitario,
+          cantidad: item.cantidad,
+          subtotal: item.subtotal,
+          unidades: [item],
+        );
+      } else {
+        grupos[item.productoId] = existente.acumular(item);
+      }
+    }
+    return grupos.values.toList();
+  }
+
   void _agregarProducto(Producto producto) {
     if (!_esPrecioValido(producto.precio)) {
       setState(() {
@@ -253,55 +359,150 @@ class _NuevoPedidoViewState extends State<NuevoPedidoView> {
       return;
     }
 
-    final indiceExistente = _itemsSeleccionados.indexWhere(
-      (item) => item.productoId == producto.id,
-    );
-
     setState(() {
-      if (indiceExistente >= 0) {
-        final actual = _itemsSeleccionados[indiceExistente];
-        _itemsSeleccionados[indiceExistente] = actual.copyWith(
-          cantidad: actual.cantidad + 1,
-        );
-      } else {
-        _itemsSeleccionados.add(
-          PedidoItem(
-            itemId: 'item-${producto.id}',
-            productoId: producto.id,
-            nombre: producto.nombre,
-            cantidad: 1,
-            precioUnitario: producto.precio,
-            imageUrl: producto.imageUrl,
-          ),
-        );
-      }
+      _itemsSeleccionados.add(
+        _crearUnidadItem(
+          productoId: producto.id,
+          nombre: producto.nombre,
+          precioUnitario: producto.precio,
+          imageUrl: producto.imageUrl ?? '',
+        ),
+      );
       _avisoProducto = null;
       _mostrarResultadosProductos = false;
       _buscarProductoCtrl.clear();
     });
+    _notificarItemsCambiados();
   }
 
-  void _cambiarCantidad(String productoId, int delta) {
-    final indice = _itemsSeleccionados.indexWhere(
-      (item) => item.productoId == productoId,
+  List<int> _obtenerIndicesProducto(String productoId) {
+    final indices = <int>[];
+    for (var i = 0; i < _itemsSeleccionados.length; i++) {
+      if (_itemsSeleccionados[i].productoId == productoId) {
+        indices.add(i);
+      }
+    }
+    return indices;
+  }
+
+  int? _buscarIndiceUnidadAEliminar(
+    List<int> indicesProducto, {
+    required bool soloSinPersonalizacion,
+  }) {
+    for (var i = indicesProducto.length - 1; i >= 0; i--) {
+      final idx = indicesProducto[i];
+      final item = _itemsSeleccionados[idx];
+      if (soloSinPersonalizacion && item.notaPersonalizacion.trim().isNotEmpty) {
+        continue;
+      }
+      if (item.estadoElaboracion == EstadoElaboracionPedido.recibido) {
+        return idx;
+      }
+    }
+    for (var i = indicesProducto.length - 1; i >= 0; i--) {
+      final idx = indicesProducto[i];
+      if (!soloSinPersonalizacion ||
+          _itemsSeleccionados[idx].notaPersonalizacion.trim().isEmpty) {
+        return idx;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _cambiarCantidad(String productoId, int delta) async {
+    if (delta == 0) return;
+
+    final indicesProducto = _obtenerIndicesProducto(productoId);
+    if (indicesProducto.isEmpty) return;
+
+    if (delta > 0) {
+      final referencia = _itemsSeleccionados[indicesProducto.first];
+      setState(() {
+        for (var i = 0; i < delta; i++) {
+          _itemsSeleccionados.add(
+            _crearUnidadItem(
+              productoId: referencia.productoId,
+              nombre: referencia.nombre,
+              precioUnitario: referencia.precioUnitario,
+              imageUrl: referencia.imageUrl ?? '',
+            ),
+          );
+        }
+        _avisoProducto = null;
+      });
+      _notificarItemsCambiados();
+      return;
+    }
+
+    if (indicesProducto.length <= 1) return;
+
+    var indiceAEliminar = _buscarIndiceUnidadAEliminar(
+      indicesProducto,
+      soloSinPersonalizacion: true,
     );
-    if (indice < 0) return;
 
-    final actual = _itemsSeleccionados[indice];
-    final nuevaCantidad = actual.cantidad + delta;
-    if (nuevaCantidad < 1) return;
+    if (indiceAEliminar == null) {
+      final nombreProducto = _itemsSeleccionados[indicesProducto.first].nombre;
+      final confirmado = await _confirmarAccion(
+        titulo: 'Disminuir cantidad',
+        mensaje:
+            'Todas las unidades de "$nombreProducto" tienen instrucciones de personalización. ¿Deseas eliminar una unidad y descartar sus instrucciones?',
+        textoConfirmar: 'Eliminar unidad',
+      );
+      if (!confirmado || !mounted) return;
 
+      final indicesActualizados = _obtenerIndicesProducto(productoId);
+      if (indicesActualizados.length <= 1) return;
+
+      indiceAEliminar = _buscarIndiceUnidadAEliminar(
+        indicesActualizados,
+        soloSinPersonalizacion: false,
+      );
+    }
+
+    if (indiceAEliminar == null ||
+        indiceAEliminar < 0 ||
+        indiceAEliminar >= _itemsSeleccionados.length) {
+      return;
+    }
+
+    final int indiceValido = indiceAEliminar;
+    final itemEliminado = _itemsSeleccionados[indiceValido];
+    FocusManager.instance.primaryFocus?.unfocus();
     setState(() {
-      _itemsSeleccionados[indice] = actual.copyWith(cantidad: nuevaCantidad);
+      _itemsSeleccionados.removeAt(indiceValido);
       _avisoProducto = null;
     });
+    _liberarControladoresDeItems([itemEliminado.itemId]);
+    _notificarItemsCambiados();
   }
 
-  void _eliminarProducto(String productoId) {
+  Future<void> _eliminarProducto(String productoId) async {
+    final unidadesProducto = _itemsSeleccionados
+        .where((item) => item.productoId == productoId)
+        .toList();
+    if (unidadesProducto.isEmpty) return;
+
+    final tienePersonalizacion = unidadesProducto.any(
+      (item) => item.notaPersonalizacion.trim().isNotEmpty,
+    );
+    if (tienePersonalizacion) {
+      final confirmado = await _confirmarAccion(
+        titulo: 'Eliminar producto',
+        mensaje:
+            'El producto "${unidadesProducto.first.nombre}" tiene unidades con instrucciones de personalización. ¿Deseas eliminarlo del pedido?',
+        textoConfirmar: 'Eliminar',
+      );
+      if (!confirmado || !mounted) return;
+    }
+
+    FocusManager.instance.primaryFocus?.unfocus();
     setState(() {
       _itemsSeleccionados.removeWhere((item) => item.productoId == productoId);
       _avisoProducto = null;
     });
+    _liberarControladoresDeItems(unidadesProducto.map((u) => u.itemId));
+    _notificarItemsCambiados();
   }
 
   @override
@@ -761,6 +962,8 @@ class _NuevoPedidoViewState extends State<NuevoPedidoView> {
   }
 
   Widget _construirListaProductosSeleccionados({required bool esEscritorio}) {
+    final grupos = _agruparItemsSeleccionados();
+
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -772,12 +975,12 @@ class _NuevoPedidoViewState extends State<NuevoPedidoView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (var i = 0; i < _itemsSeleccionados.length; i++) ...[
+          for (var i = 0; i < grupos.length; i++) ...[
             _construirFilaProductoSeleccionado(
-              _itemsSeleccionados[i],
+              grupos[i],
               esEscritorio: esEscritorio,
             ),
-            if (i < _itemsSeleccionados.length - 1)
+            if (i < grupos.length - 1)
               const Divider(height: 1, color: _bordeSuave),
           ],
         ],
@@ -786,7 +989,7 @@ class _NuevoPedidoViewState extends State<NuevoPedidoView> {
   }
 
   Widget _construirFilaProductoSeleccionado(
-    PedidoItem item, {
+    _GrupoProductoPedido item, {
     required bool esEscritorio,
   }) {
     final precioUnitarioTexto =
@@ -831,71 +1034,27 @@ class _NuevoPedidoViewState extends State<NuevoPedidoView> {
     );
 
     return Padding(
+      key: ValueKey<String>('grupo-producto-${item.productoId}'),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: esEscritorio
-          ? Row(
-              children: [
-                const Icon(
-                  Icons.inventory_2_outlined,
-                  color: _rojoMarca,
-                  size: 20,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item.nombre,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 14.5,
-                          fontWeight: FontWeight.w700,
-                          color: _negroElegante,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        precioUnitarioTexto,
-                        style: const TextStyle(fontSize: 12.5, color: _grisTexto),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                controlesCantidad,
-                const SizedBox(width: 12),
-                Text(
-                  subtotalTexto,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: _rojoMarca,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                botonEliminar,
-              ],
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          esEscritorio
+              ? Row(
                   children: [
                     const Icon(
                       Icons.inventory_2_outlined,
                       color: _rojoMarca,
                       size: 20,
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             item.nombre,
-                            maxLines: 2,
+                            maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontSize: 14.5,
@@ -914,14 +1073,9 @@ class _NuevoPedidoViewState extends State<NuevoPedidoView> {
                         ],
                       ),
                     ),
-                    botonEliminar,
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
+                    const SizedBox(width: 12),
                     controlesCantidad,
-                    const Spacer(),
+                    const SizedBox(width: 12),
                     Text(
                       subtotalTexto,
                       style: const TextStyle(
@@ -930,10 +1084,152 @@ class _NuevoPedidoViewState extends State<NuevoPedidoView> {
                         color: _rojoMarca,
                       ),
                     ),
+                    const SizedBox(width: 6),
+                    botonEliminar,
+                  ],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.inventory_2_outlined,
+                          color: _rojoMarca,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.nombre,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 14.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: _negroElegante,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                precioUnitarioTexto,
+                                style: const TextStyle(
+                                  fontSize: 12.5,
+                                  color: _grisTexto,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        botonEliminar,
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        controlesCantidad,
+                        const Spacer(),
+                        Text(
+                          subtotalTexto,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: _rojoMarca,
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
+          const SizedBox(height: 6),
+          Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              key: ValueKey<String>('personalizar-${item.productoId}'),
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: const EdgeInsets.only(top: 6, bottom: 2),
+              maintainState: true,
+              iconColor: _rojoMarca,
+              collapsedIconColor: _grisTexto,
+              title: const Text(
+                'Personalizar unidades',
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                  color: _negroElegante,
+                ),
+              ),
+              children: [
+                for (var i = 0; i < item.unidades.length; i++) ...[
+                  _construirFilaPersonalizacionUnidad(
+                    item.unidades[i],
+                    numeroUnidad: i + 1,
+                  ),
+                  if (i < item.unidades.length - 1) const SizedBox(height: 8),
+                ],
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _construirFilaPersonalizacionUnidad(
+    PedidoItem unidad, {
+    required int numeroUnidad,
+  }) {
+    final controlador = _obtenerControladorPersonalizacion(unidad);
+
+    return Container(
+      key: ValueKey<String>('unidad-${unidad.itemId}'),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _bordeSuave),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Unidad $numeroUnidad',
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: _rojoMarca,
+            ),
+          ),
+          const SizedBox(height: 6),
+          TextField(
+            controller: controlador,
+            onChanged: (valor) =>
+                _actualizarPersonalizacion(unidad.itemId, valor),
+            decoration: InputDecoration(
+              labelText: 'Personalización / instrucciones',
+              hintText: 'Ej. grabado, color, largo o detalle especial',
+              isDense: true,
+              filled: true,
+              fillColor: _rosaSuave.withValues(alpha: 0.25),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: _bordeSuave),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: _bordeSuave),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: _rojoMarca, width: 1.5),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1301,6 +1597,35 @@ class _DatoCliente extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _GrupoProductoPedido {
+  final String productoId;
+  final String nombre;
+  final double precioUnitario;
+  final int cantidad;
+  final double subtotal;
+  final List<PedidoItem> unidades;
+
+  const _GrupoProductoPedido({
+    required this.productoId,
+    required this.nombre,
+    required this.precioUnitario,
+    required this.cantidad,
+    required this.subtotal,
+    required this.unidades,
+  });
+
+  _GrupoProductoPedido acumular(PedidoItem item) {
+    return _GrupoProductoPedido(
+      productoId: productoId,
+      nombre: nombre,
+      precioUnitario: precioUnitario,
+      cantidad: cantidad + item.cantidad,
+      subtotal: subtotal + item.subtotal,
+      unidades: [...unidades, item],
     );
   }
 }
