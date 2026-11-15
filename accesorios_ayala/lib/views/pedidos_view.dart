@@ -7,6 +7,7 @@ import 'nuevo_pedido_view.dart';
 enum _SubseccionPedidos {
   resumen,
   pedidos,
+  facturas,
   nuevoPedido,
   reportes,
   alertas,
@@ -54,6 +55,11 @@ class _PedidosViewState extends State<PedidosView> {
       seccion: _SubseccionPedidos.pedidos,
       etiqueta: 'Pedidos',
       icono: Icons.inventory_2_outlined,
+    ),
+    _OpcionSubmenuPedidos(
+      seccion: _SubseccionPedidos.facturas,
+      etiqueta: 'Facturas',
+      icono: Icons.receipt_long_outlined,
     ),
     _OpcionSubmenuPedidos(
       seccion: _SubseccionPedidos.nuevoPedido,
@@ -279,6 +285,14 @@ class _PedidosViewState extends State<PedidosView> {
         );
       case _SubseccionPedidos.pedidos:
         return _construirSeccionPedidos(esEscritorio: esEscritorio);
+      case _SubseccionPedidos.facturas:
+        return _construirTarjetaInformativa(
+          icono: Icons.receipt_long_outlined,
+          titulo: 'Facturas emitidas',
+          mensaje:
+              'Aquí podrás consultar las facturas emitidas y sus detalles. Esta funcionalidad estará disponible próximamente.',
+          esEscritorio: esEscritorio,
+        );
       case _SubseccionPedidos.nuevoPedido:
         return NuevoPedidoView(
           onPedidoRegistrado: _manejarPedidoRegistrado,
