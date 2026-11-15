@@ -809,6 +809,15 @@ class _PedidosViewState extends State<PedidosView> {
     });
   }
 
+  void _eliminarPedidoDeLista(String pedidoId) {
+    if (_usaListaExterna) return;
+    setState(() {
+      _pedidosCargados = _pedidosCargados
+          .where((p) => p.id != pedidoId)
+          .toList(growable: false);
+    });
+  }
+
   Future<void> _mostrarDetallePedido(Pedido pedido) async {
     var pedidoActual = pedido;
     final estadosProvisionales = <String, EstadoElaboracionPedido>{
@@ -816,6 +825,7 @@ class _PedidosViewState extends State<PedidosView> {
     };
     var guardando = false;
     var recargando = false;
+    var eliminandoPedido = false;
     var requiereRecarga = false;
     String? mensajeExito;
     String? mensajeError;
@@ -849,6 +859,7 @@ class _PedidosViewState extends State<PedidosView> {
             }) {
               setDialogState(() {
                 guardando = false;
+                eliminandoPedido = false;
                 requiereRecarga = necesitaRecarga;
                 mensajeExito = null;
                 mensajeError = mensajeMostrado;
@@ -1015,6 +1026,7 @@ class _PedidosViewState extends State<PedidosView> {
             Future<void> editarFechaEntrega() async {
               if (guardando ||
                   recargando ||
+                  eliminandoPedido ||
                   requiereRecarga ||
                   hayCambiosProvisionales ||
                   pedidoActual.facturado ||
@@ -1121,6 +1133,7 @@ class _PedidosViewState extends State<PedidosView> {
             Future<void> eliminarAccesorio(PedidoItem item) async {
               if (guardando ||
                   recargando ||
+                  eliminandoPedido ||
                   requiereRecarga ||
                   hayCambiosProvisionales ||
                   pedidoActual.facturado ||
@@ -1215,6 +1228,95 @@ class _PedidosViewState extends State<PedidosView> {
               }
             }
 
+            Future<void> eliminarPedidoCompleto() async {
+              final elegibleParaEliminar =
+                  !pedidoActual.facturado &&
+                  pedidoActual.ventaId == null &&
+                  pedidoActual.facturaNumero == null;
+              if (guardando ||
+                  recargando ||
+                  eliminandoPedido ||
+                  requiereRecarga ||
+                  hayCambiosProvisionales ||
+                  !elegibleParaEliminar) {
+                return;
+              }
+
+              final numeroPedido = _numeroVisible(pedidoActual);
+              final confirmado = await showDialog<bool>(
+                context: dialogContext,
+                builder: (confirmContext) {
+                  return AlertDialog(
+                    title: const Text('Eliminar pedido'),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          numeroPedido,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 6),
+                        Text('Cliente: ${pedidoActual.clienteNombre}'),
+                        const SizedBox(height: 10),
+                        const Text(
+                          'Esta acción eliminará el pedido de forma permanente y no se puede deshacer.',
+                          style: TextStyle(fontSize: 13, color: _grisTexto),
+                        ),
+                      ],
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () =>
+                            Navigator.of(confirmContext).pop(false),
+                        child: const Text('Cancelar'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () => Navigator.of(confirmContext).pop(true),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFB91C1C),
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('Eliminar definitivamente'),
+                      ),
+                    ],
+                  );
+                },
+              );
+              if (confirmado != true || !dialogContext.mounted) return;
+
+              setDialogState(() {
+                eliminandoPedido = true;
+                mensajeExito = null;
+                mensajeError = null;
+                permitirRecargar = false;
+              });
+
+              try {
+                await PedidoController.eliminarPedido(
+                  pedidoId: pedidoActual.id,
+                  updatedAtEsperado: pedidoActual.updatedAt,
+                );
+
+                _eliminarPedidoDeLista(pedidoActual.id);
+                if (dialogContext.mounted) {
+                  Navigator.of(dialogContext).pop();
+                }
+                if (mounted) {
+                  ScaffoldMessenger.of(this.context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Pedido $numeroPedido eliminado definitivamente.',
+                      ),
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (!dialogContext.mounted) return;
+                manejarExcepcionActualizacion(e);
+              }
+            }
+
             final tamanioVentana = MediaQuery.sizeOf(dialogContext);
             final esVentanaEscritorio =
                 tamanioVentana.width >= _breakpointEscritorio;
@@ -1224,7 +1326,12 @@ class _PedidosViewState extends State<PedidosView> {
             final altoMaximo =
                 (tamanioVentana.height - (esVentanaEscritorio ? 48.0 : 32.0))
                     .clamp(320.0, 820.0);
-            final bloqueadoPorOperacion = guardando || recargando;
+            final bloqueadoPorOperacion =
+                guardando || recargando || eliminandoPedido;
+            final puedeMostrarEliminarPedido =
+                !pedidoActual.facturado &&
+                pedidoActual.ventaId == null &&
+                pedidoActual.facturaNumero == null;
 
             return PopScope(
               canPop: !bloqueadoPorOperacion,
@@ -1561,11 +1668,11 @@ class _PedidosViewState extends State<PedidosView> {
                           ),
                           child: Row(
                             children: [
-                              if (guardando)
-                                const Expanded(
+                              if (guardando || eliminandoPedido)
+                                Expanded(
                                   child: Row(
                                     children: [
-                                      SizedBox(
+                                      const SizedBox(
                                         width: 15,
                                         height: 15,
                                         child: CircularProgressIndicator(
@@ -1573,11 +1680,13 @@ class _PedidosViewState extends State<PedidosView> {
                                           color: _rojoMarca,
                                         ),
                                       ),
-                                      SizedBox(width: 8),
+                                      const SizedBox(width: 8),
                                       Expanded(
                                         child: Text(
-                                          'Guardando cambios en Firestore...',
-                                          style: TextStyle(
+                                          eliminandoPedido
+                                              ? 'Eliminando pedido en Firestore...'
+                                              : 'Guardando cambios en Firestore...',
+                                          style: const TextStyle(
                                             fontSize: 12.5,
                                             fontWeight: FontWeight.w600,
                                             color: _grisTexto,
@@ -1636,46 +1745,105 @@ class _PedidosViewState extends State<PedidosView> {
                               else
                                 const Spacer(),
                               const SizedBox(width: 12),
-                              OutlinedButton(
-                                onPressed: bloqueadoPorOperacion
-                                    ? null
-                                    : () => Navigator.of(dialogContext).pop(),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: _negroElegante,
-                                  side: const BorderSide(color: _bordeSuave),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 18,
-                                    vertical: 12,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                                child: const Text('Cerrar'),
-                              ),
-                              const SizedBox(width: 10),
-                              ElevatedButton(
-                                onPressed:
-                                    hayCambiosProvisionales &&
-                                        !bloqueadoPorOperacion &&
-                                        !requiereRecarga
-                                    ? guardarCambios
-                                    : null,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: _rojoMarca,
-                                  foregroundColor: Colors.white,
-                                  disabledBackgroundColor: _bordeSuave,
-                                  disabledForegroundColor: _grisTexto,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 20,
-                                    vertical: 12,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                                child: Text(
-                                  guardando ? 'Guardando...' : 'Guardar cambios',
+                              Flexible(
+                                child: Wrap(
+                                  spacing: 10,
+                                  runSpacing: 8,
+                                  alignment: WrapAlignment.end,
+                                  children: [
+                                    if (puedeMostrarEliminarPedido)
+                                      OutlinedButton.icon(
+                                        onPressed:
+                                            !bloqueadoPorOperacion &&
+                                                !requiereRecarga &&
+                                                !hayCambiosProvisionales
+                                            ? eliminarPedidoCompleto
+                                            : null,
+                                        icon: const Icon(
+                                          Icons.delete_forever_outlined,
+                                          size: 18,
+                                        ),
+                                        label: Text(
+                                          eliminandoPedido
+                                              ? 'Eliminando...'
+                                              : 'Eliminar pedido',
+                                        ),
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: const Color(
+                                            0xFFB91C1C,
+                                          ),
+                                          disabledForegroundColor: _grisTexto,
+                                          side: BorderSide(
+                                            color:
+                                                !bloqueadoPorOperacion &&
+                                                    !requiereRecarga &&
+                                                    !hayCambiosProvisionales
+                                                ? const Color(0xFFFCA5A5)
+                                                : _bordeSuave,
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 14,
+                                            vertical: 12,
+                                          ),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    OutlinedButton(
+                                      onPressed: bloqueadoPorOperacion
+                                          ? null
+                                          : () => Navigator.of(
+                                              dialogContext,
+                                            ).pop(),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: _negroElegante,
+                                        side: const BorderSide(
+                                          color: _bordeSuave,
+                                        ),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 18,
+                                          vertical: 12,
+                                        ),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                      ),
+                                      child: const Text('Cerrar'),
+                                    ),
+                                    ElevatedButton(
+                                      onPressed:
+                                          hayCambiosProvisionales &&
+                                              !bloqueadoPorOperacion &&
+                                              !requiereRecarga
+                                          ? guardarCambios
+                                          : null,
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: _rojoMarca,
+                                        foregroundColor: Colors.white,
+                                        disabledBackgroundColor: _bordeSuave,
+                                        disabledForegroundColor: _grisTexto,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 20,
+                                          vertical: 12,
+                                        ),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        guardando
+                                            ? 'Guardando...'
+                                            : 'Guardar cambios',
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],

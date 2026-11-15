@@ -856,6 +856,82 @@ class PedidoController {
     }
   }
 
+  /// Elimina definitivamente un documento de `pedidos` en Firestore mediante una
+  /// transacción, verificando control de concurrencia con [updatedAtEsperado] y
+  /// rechazando pedidos ya facturados o vinculados a una venta.
+  static Future<void> eliminarPedido({
+    required String pedidoId,
+    required DateTime? updatedAtEsperado,
+    FirebaseFirestore? firestore,
+  }) async {
+    final idLimpio = pedidoId.trim();
+    if (idLimpio.isEmpty) {
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.datosInvalidos,
+        mensaje: 'El identificador del pedido es obligatorio.',
+      );
+    }
+
+    if (updatedAtEsperado == null) {
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.datosInvalidos,
+        mensaje:
+            'Se requiere la versión actual del pedido (updatedAt) para eliminarlo de forma segura.',
+      );
+    }
+
+    final db = firestore ?? FirebaseFirestore.instance;
+    final pedidoRef = db.collection(collection).doc(idLimpio);
+
+    try {
+      await db.runTransaction<void>((tx) async {
+        final snapshot = await tx.get(pedidoRef);
+        final data = snapshot.data();
+
+        if (!snapshot.exists || data == null) {
+          throw const PedidoControllerException(
+            tipo: TipoErrorPedido.pedidoNoEncontrado,
+            mensaje: 'El pedido no existe o ya fue eliminado de Firestore.',
+          );
+        }
+
+        final pedidoActual = Pedido.fromMap(data, id: snapshot.id);
+        final marcaActual =
+            pedidoActual.updatedAt?.toUtc().microsecondsSinceEpoch;
+        final marcaEsperada = updatedAtEsperado.toUtc().microsecondsSinceEpoch;
+
+        if (marcaActual != marcaEsperada) {
+          throw const PedidoControllerException(
+            tipo: TipoErrorPedido.conflictoConcurrencia,
+            mensaje:
+                'Este pedido fue modificado por otro administrador. Recárgalo antes de continuar.',
+          );
+        }
+
+        if (pedidoActual.facturado ||
+            pedidoActual.ventaId != null ||
+            pedidoActual.facturaNumero != null) {
+          throw const PedidoControllerException(
+            tipo: TipoErrorPedido.datosInvalidos,
+            mensaje:
+                'No se puede eliminar un pedido ya facturado o vinculado a una venta.',
+          );
+        }
+
+        tx.delete(pedidoRef);
+      });
+    } on PedidoControllerException {
+      rethrow;
+    } on FirebaseException catch (e) {
+      throw _mapearFirebaseException(e, esActualizacion: true);
+    } catch (e) {
+      throw PedidoControllerException(
+        tipo: TipoErrorPedido.errorTransaccion,
+        mensaje: 'No se pudo eliminar el pedido: $e',
+      );
+    }
+  }
+
   static PedidoControllerException _mapearFirebaseException(
     FirebaseException e, {
     bool esLectura = false,

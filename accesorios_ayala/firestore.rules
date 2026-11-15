@@ -678,7 +678,10 @@ service cloud.firestore {
           )
         );
 
-      allow delete: if false;
+      allow delete: if isAdmin()
+        && (!('facturado' in resource.data) || resource.data.facturado == false)
+        && (!('ventaId' in resource.data) || resource.data.ventaId == null)
+        && (!('facturaNumero' in resource.data) || resource.data.facturaNumero == null);
     }
 
     match /{document=**} {
