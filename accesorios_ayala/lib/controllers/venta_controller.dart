@@ -18,6 +18,43 @@ class VentaController {
     }).toList();
   }
 
+  /// Consulta las facturas emitidas por pedidos (`FAC-*`) en la colección
+  /// `ventas`, ordenadas de más reciente a más antigua por `fecha`.
+  static Future<List<Venta>> cargarFacturas({
+    FirebaseFirestore? firestore,
+  }) async {
+    final db = firestore ?? _firestore;
+
+    try {
+      final snapshot = await db
+          .collection(collection)
+          .where(FieldPath.documentId, isGreaterThanOrEqualTo: 'FAC-')
+          .where(FieldPath.documentId, isLessThan: 'FAC.')
+          .get();
+
+      final facturas = <Venta>[];
+      for (final doc in snapshot.docs) {
+        if (!doc.id.startsWith('FAC-')) continue;
+
+        final data = doc.data();
+        final rawFecha = data['fecha'];
+        final mapNormalizado = <String, dynamic>{
+          ...data,
+          if ((data['id'] as String?)?.trim().isEmpty ?? true) 'id': doc.id,
+          if (rawFecha is Timestamp)
+            'fecha': rawFecha.toDate().toUtc().toIso8601String(),
+        };
+
+        facturas.add(Venta.fromMap(mapNormalizado));
+      }
+
+      facturas.sort((a, b) => b.fecha.compareTo(a.fecha));
+      return facturas;
+    } on FirebaseException {
+      rethrow;
+    }
+  }
+
   static Future<double> ventasMesActual() async {
     final ventas = await cargarVentas();
 
