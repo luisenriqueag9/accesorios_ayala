@@ -1,7 +1,10 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../controllers/pedido_controller.dart';
+import '../controllers/venta_controller.dart';
 import '../models/pedido.dart';
+import '../models/venta.dart';
 import 'nuevo_pedido_view.dart';
 
 enum _SubseccionPedidos {
@@ -27,10 +30,14 @@ class _OpcionSubmenuPedidos {
 
 class PedidosView extends StatefulWidget {
   final List<Pedido>? pedidos;
+  final List<Venta>? facturas;
+  final Future<List<Venta>> Function()? onCargarFacturas;
 
   const PedidosView({
     super.key,
     this.pedidos,
+    this.facturas,
+    this.onCargarFacturas,
   });
 
   @override
@@ -84,9 +91,16 @@ class _PedidosViewState extends State<PedidosView> {
   bool _cargandoPedidos = false;
   String? _errorCargaPedidos;
 
+  List<Venta> _facturasCargadas = [];
+  bool _cargandoFacturas = false;
+  bool _facturasInicializadas = false;
+  String? _errorCargaFacturas;
+
   bool get _usaListaExterna => widget.pedidos != null;
+  bool get _usaFacturasExternas => widget.facturas != null;
 
   List<Pedido> get pedidos => widget.pedidos ?? _pedidosCargados;
+  List<Venta> get facturas => widget.facturas ?? _facturasCargadas;
 
   @override
   void initState() {
@@ -105,6 +119,13 @@ class _PedidosViewState extends State<PedidosView> {
       setState(() {
         _cargandoPedidos = false;
         _errorCargaPedidos = null;
+      });
+    }
+
+    if (widget.facturas != null && oldWidget.facturas == null) {
+      setState(() {
+        _cargandoFacturas = false;
+        _errorCargaFacturas = null;
       });
     }
   }
@@ -148,6 +169,66 @@ class _PedidosViewState extends State<PedidosView> {
       });
       return false;
     }
+  }
+
+  Future<bool> _cargarFacturas() async {
+    if (_usaFacturasExternas || _cargandoFacturas) return false;
+
+    setState(() {
+      _cargandoFacturas = true;
+      _facturasInicializadas = true;
+      _errorCargaFacturas = null;
+    });
+
+    try {
+      final loader = widget.onCargarFacturas ?? VentaController.cargarFacturas;
+      final cargadas = await loader();
+      if (!mounted) return false;
+      setState(() {
+        _facturasCargadas = cargadas;
+        _cargandoFacturas = false;
+      });
+      return true;
+    } on FirebaseException catch (e) {
+      if (!mounted) return false;
+      setState(() {
+        _errorCargaFacturas = _mensajeErrorFacturas(e);
+        _cargandoFacturas = false;
+      });
+      return false;
+    } catch (_) {
+      if (!mounted) return false;
+      setState(() {
+        _errorCargaFacturas =
+            'No se pudieron cargar las facturas desde Firestore. Intenta nuevamente.';
+        _cargandoFacturas = false;
+      });
+      return false;
+    }
+  }
+
+  String _mensajeErrorFacturas(FirebaseException e) {
+    switch (e.code) {
+      case 'permission-denied':
+      case 'unauthenticated':
+        return 'No tienes permisos suficientes para consultar las facturas en Firestore.';
+      case 'unavailable':
+      case 'deadline-exceeded':
+      case 'network-request-failed':
+        return 'Error de conexión al consultar las facturas en Firestore. Intenta nuevamente.';
+      default:
+        return 'No se pudieron cargar las facturas desde Firestore. Intenta nuevamente.';
+    }
+  }
+
+  String _pedidoRelacionadoVisible(Venta factura) {
+    for (final pedido in pedidos) {
+      if (pedido.facturaNumero == factura.id || pedido.ventaId == factura.id) {
+        final numero = pedido.numeroPedido.trim();
+        return numero.isNotEmpty ? numero : '—';
+      }
+    }
+    return '—';
   }
 
   String _formatearFecha(DateTime? fecha) {
@@ -244,6 +325,11 @@ class _PedidosViewState extends State<PedidosView> {
               opcion.seccion == _SubseccionPedidos.pedidos &&
               !_usaListaExterna) {
             _cargarPedidos();
+          } else if (opcion.seccion == _SubseccionPedidos.facturas &&
+              !_usaFacturasExternas &&
+              !_facturasInicializadas &&
+              !_cargandoFacturas) {
+            _cargarFacturas();
           }
         }
       },
@@ -286,13 +372,7 @@ class _PedidosViewState extends State<PedidosView> {
       case _SubseccionPedidos.pedidos:
         return _construirSeccionPedidos(esEscritorio: esEscritorio);
       case _SubseccionPedidos.facturas:
-        return _construirTarjetaInformativa(
-          icono: Icons.receipt_long_outlined,
-          titulo: 'Facturas emitidas',
-          mensaje:
-              'Aquí podrás consultar las facturas emitidas y sus detalles. Esta funcionalidad estará disponible próximamente.',
-          esEscritorio: esEscritorio,
-        );
+        return _construirSeccionFacturas(esEscritorio: esEscritorio);
       case _SubseccionPedidos.nuevoPedido:
         return NuevoPedidoView(
           onPedidoRegistrado: _manejarPedidoRegistrado,
@@ -523,6 +603,465 @@ class _PedidosViewState extends State<PedidosView> {
         const SizedBox(height: 12),
         contenido,
       ],
+    );
+  }
+
+  Widget _construirSeccionFacturas({required bool esEscritorio}) {
+    final tieneFacturas = facturas.isNotEmpty;
+    final Widget contenido;
+    if (tieneFacturas) {
+      contenido = esEscritorio
+          ? _construirTablaFacturasEscritorio()
+          : _construirListaFacturasMovil();
+    } else if (_cargandoFacturas) {
+      contenido = _construirEstadoCargandoFacturas(esEscritorio: esEscritorio);
+    } else if (_errorCargaFacturas != null) {
+      contenido = _construirEstadoErrorFacturas(esEscritorio: esEscritorio);
+    } else {
+      contenido = _construirEstadoVacioFacturas(esEscritorio: esEscritorio);
+    }
+
+    if (_usaFacturasExternas) {
+      return contenido;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            if (tieneFacturas && _cargandoFacturas) ...[
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: _rojoMarca,
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Actualizando facturas...',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: _grisTexto,
+                ),
+              ),
+              const SizedBox(width: 12),
+            ],
+            OutlinedButton.icon(
+              onPressed: _cargandoFacturas ? null : _cargarFacturas,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Actualizar'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _rojoMarca,
+                backgroundColor: Colors.white,
+                side: const BorderSide(color: _bordeSuave),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (tieneFacturas &&
+            !_cargandoFacturas &&
+            _errorCargaFacturas != null) ...[
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: _rosaSuave.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _bordeSuave),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  size: 18,
+                  color: _rojoMarca,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${_errorCargaFacturas!} Se muestran las facturas disponibles en memoria.',
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: _negroElegante,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(height: 12),
+        contenido,
+      ],
+    );
+  }
+
+  Widget _construirEstadoCargandoFacturas({required bool esEscritorio}) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: esEscritorio ? 32 : 20,
+        vertical: esEscritorio ? 44 : 34,
+      ),
+      decoration: _decoracionTarjeta(),
+      child: const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircularProgressIndicator(color: _rojoMarca),
+          SizedBox(height: 16),
+          Text(
+            'Cargando facturas...',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: _grisTexto,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _construirEstadoErrorFacturas({required bool esEscritorio}) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: esEscritorio ? 32 : 20,
+        vertical: esEscritorio ? 44 : 34,
+      ),
+      decoration: _decoracionTarjeta(),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _rosaSuave,
+              shape: BoxShape.circle,
+              border: Border.all(color: _bordeSuave),
+            ),
+            child: const Icon(
+              Icons.error_outline_rounded,
+              color: _rojoMarca,
+              size: 34,
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'No se pudieron cargar las facturas',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: _negroElegante,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _errorCargaFacturas ??
+                'Ocurrió un error al consultar Firestore. Intenta nuevamente.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 14,
+              color: _grisTexto,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 18),
+          ElevatedButton.icon(
+            onPressed: _cargandoFacturas ? null : _cargarFacturas,
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text('Reintentar'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _rojoMarca,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _construirEstadoVacioFacturas({required bool esEscritorio}) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: esEscritorio ? 32 : 20,
+        vertical: esEscritorio ? 44 : 34,
+      ),
+      decoration: _decoracionTarjeta(),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _rosaSuave,
+              shape: BoxShape.circle,
+              border: Border.all(color: _bordeSuave),
+            ),
+            child: const Icon(
+              Icons.receipt_long_outlined,
+              color: _rojoMarca,
+              size: 34,
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'No hay facturas emitidas',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: _negroElegante,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Las facturas emitidas desde pedidos aparecerán aquí.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              color: _grisTexto,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _construirTablaFacturasEscritorio() {
+    return Container(
+      width: double.infinity,
+      decoration: _decoracionTarjeta(),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            color: _rosaSuave.withValues(alpha: 0.75),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            child: const Row(
+              children: [
+                Expanded(flex: 2, child: _EncabezadoColumna('N.º Factura')),
+                Expanded(flex: 3, child: _EncabezadoColumna('Cliente')),
+                Expanded(flex: 2, child: _EncabezadoColumna('Pedido')),
+                Expanded(flex: 2, child: _EncabezadoColumna('Fecha')),
+                Expanded(
+                  flex: 2,
+                  child: _EncabezadoColumna('Total', alineacionDerecha: true),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: _bordeSuave),
+          for (var i = 0; i < facturas.length; i++) ...[
+            _construirFilaFacturaEscritorio(facturas[i]),
+            if (i < facturas.length - 1)
+              const Divider(height: 1, color: _bordeSuave),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _construirFilaFacturaEscritorio(Venta factura) {
+    final pedidoRelacionado = _pedidoRelacionadoVisible(factura);
+    final fechaEmision = _formatearFecha(factura.fecha.toLocal());
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            flex: 2,
+            child: Text(
+              factura.id,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+                color: _negroElegante,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 3,
+            child: Text(
+              factura.clienteNombre,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 14, color: _negroElegante),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 2,
+            child: Text(
+              pedidoRelacionado,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13.5,
+                fontWeight: pedidoRelacionado == '—'
+                    ? FontWeight.w400
+                    : FontWeight.w600,
+                color: pedidoRelacionado == '—'
+                    ? _grisTexto
+                    : _negroElegante,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 2,
+            child: Text(
+              fechaEmision,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 13.5, color: _grisTexto),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 2,
+            child: Text(
+              'L. ${factura.total.toStringAsFixed(2)}',
+              textAlign: TextAlign.right,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+                color: _rojoMarca,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _construirListaFacturasMovil() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < facturas.length; i++) ...[
+          _construirTarjetaFacturaMovil(facturas[i]),
+          if (i < facturas.length - 1) const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+
+  Widget _construirTarjetaFacturaMovil(Venta factura) {
+    final pedidoRelacionado = _pedidoRelacionadoVisible(factura);
+    final fechaEmision = _formatearFecha(factura.fecha.toLocal());
+
+    return Container(
+      decoration: _decoracionTarjeta(),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  factura.id,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: _negroElegante,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'L. ${factura.total.toStringAsFixed(2)}',
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: _rojoMarca,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            factura.clienteNombre,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 14.5,
+              fontWeight: FontWeight.w600,
+              color: _negroElegante,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Icon(
+                Icons.event_outlined,
+                size: 15,
+                color: _grisTexto,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Fecha: $fechaEmision',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, color: _grisTexto),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              const Icon(
+                Icons.inventory_2_outlined,
+                size: 15,
+                color: _grisTexto,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Pedido: $pedidoRelacionado',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, color: _grisTexto),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 

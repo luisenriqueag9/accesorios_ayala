@@ -1,7 +1,11 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:accesorios_ayala/models/pedido.dart';
+import 'package:accesorios_ayala/models/venta.dart';
 import 'package:accesorios_ayala/views/pedidos_view.dart';
 
 void main() {
@@ -359,6 +363,327 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
+      },
+    );
+  });
+
+  group('PedidosView - Pestaña Facturas (historial de solo lectura)', () {
+    Venta crearFactura({
+      required String id,
+      required String clienteNombre,
+      required DateTime fecha,
+      required double total,
+    }) {
+      return Venta(
+        id: id,
+        clienteId: 'cli-1',
+        clienteNombre: clienteNombre,
+        fecha: fecha,
+        subtotal: total,
+        impuesto: 0.0,
+        total: total,
+      );
+    }
+
+    Future<void> montarVistaFacturas(
+      WidgetTester tester, {
+      required Size tamano,
+      List<Pedido>? pedidos,
+      List<Venta>? facturas,
+      Future<List<Venta>> Function()? onCargarFacturas,
+    }) async {
+      tester.view.physicalSize = tamano;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: PedidosView(
+                pedidos: pedidos ?? const [],
+                facturas: facturas,
+                onCargarFacturas: onCargarFacturas,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'realiza carga diferida únicamente al abrir la pestaña Facturas y muestra estado de carga',
+      (tester) async {
+        var llamadas = 0;
+        final completer = Completer<List<Venta>>();
+
+        await montarVistaFacturas(
+          tester,
+          tamano: const Size(1400, 900),
+          onCargarFacturas: () {
+            llamadas++;
+            return completer.future;
+          },
+        );
+
+        expect(llamadas, 0);
+
+        await tester.tap(find.text('Facturas'));
+        await tester.pump();
+
+        expect(llamadas, 1);
+        expect(find.text('Cargando facturas...'), findsOneWidget);
+
+        completer.complete([
+          crearFactura(
+            id: 'FAC-0001',
+            clienteNombre: 'Ana López',
+            fecha: DateTime(2026, 11, 15, 10, 0),
+            total: 620.0,
+          ),
+        ]);
+        await tester.pumpAndSettle();
+
+        expect(find.text('FAC-0001'), findsOneWidget);
+        expect(find.text('Ana López'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'muestra tabla en escritorio con pedido relacionado y guión cuando no está en memoria',
+      (tester) async {
+        final pedidosEnMemoria = [
+          crearPedido(
+            facturado: true,
+            ventaId: 'FAC-0002',
+            facturaNumero: 'FAC-0002',
+          ),
+        ];
+        final listaFacturas = [
+          crearFactura(
+            id: 'FAC-0002',
+            clienteNombre: 'Ana López',
+            fecha: DateTime(2026, 11, 15, 14, 0),
+            total: 920.50,
+          ),
+          crearFactura(
+            id: 'FAC-0001',
+            clienteNombre: 'Carlos Pérez',
+            fecha: DateTime(2026, 11, 14, 9, 0),
+            total: 450.0,
+          ),
+        ];
+
+        await montarVistaFacturas(
+          tester,
+          tamano: const Size(1400, 900),
+          pedidos: pedidosEnMemoria,
+          facturas: listaFacturas,
+        );
+
+        await tester.tap(find.text('Facturas'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('N.º Factura'), findsOneWidget);
+        expect(find.text('Cliente'), findsOneWidget);
+        expect(find.text('Pedido'), findsOneWidget);
+        expect(find.text('Fecha'), findsOneWidget);
+        expect(find.text('Total'), findsOneWidget);
+
+        expect(find.text('FAC-0002'), findsOneWidget);
+        expect(find.text('Ana López'), findsOneWidget);
+        expect(find.text('PED-0021'), findsOneWidget);
+        expect(find.text('L. 920.50'), findsOneWidget);
+
+        expect(find.text('FAC-0001'), findsOneWidget);
+        expect(find.text('Carlos Pérez'), findsOneWidget);
+        expect(find.text('—'), findsOneWidget);
+        expect(find.text('L. 450.00'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'muestra tarjetas en móvil sin desbordamiento horizontal',
+      (tester) async {
+        final pedidosEnMemoria = [
+          crearPedido(
+            facturado: true,
+            ventaId: 'FAC-0010',
+            facturaNumero: 'FAC-0010',
+          ),
+        ];
+
+        await montarVistaFacturas(
+          tester,
+          tamano: const Size(390, 844),
+          pedidos: pedidosEnMemoria,
+          facturas: [
+            crearFactura(
+              id: 'FAC-0010',
+              clienteNombre: 'María Fernanda Rodríguez de la Cruz',
+              fecha: DateTime(2026, 11, 15, 11, 0),
+              total: 1250.0,
+            ),
+          ],
+        );
+
+        final pestanaFacturas = find.text('Facturas');
+        await tester.ensureVisible(pestanaFacturas);
+        await tester.pumpAndSettle();
+
+        await tester.tap(pestanaFacturas);
+        await tester.pumpAndSettle();
+
+        expect(find.text('N.º Factura'), findsNothing);
+        expect(find.text('FAC-0010'), findsOneWidget);
+        expect(find.text('L. 1250.00'), findsOneWidget);
+        expect(
+          find.text('María Fernanda Rodríguez de la Cruz'),
+          findsOneWidget,
+        );
+        expect(find.text('Pedido: PED-0021'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets('muestra estado vacío cuando no hay facturas emitidas', (
+      tester,
+    ) async {
+      await montarVistaFacturas(
+        tester,
+        tamano: const Size(1400, 900),
+        onCargarFacturas: () async => [],
+      );
+
+      await tester.tap(find.text('Facturas'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('No hay facturas emitidas'), findsOneWidget);
+    });
+
+    testWidgets(
+      'muestra error distinguido, permite reintentar y no bloquea otras pestañas',
+      (tester) async {
+        var intento = 0;
+
+        await montarVistaFacturas(
+          tester,
+          tamano: const Size(1400, 900),
+          onCargarFacturas: () async {
+            intento++;
+            if (intento == 1) {
+              throw FirebaseException(
+                plugin: 'cloud_firestore',
+                code: 'permission-denied',
+              );
+            }
+            return [
+              crearFactura(
+                id: 'FAC-0005',
+                clienteNombre: 'Elena Ruiz',
+                fecha: DateTime(2026, 11, 15, 12, 0),
+                total: 700.0,
+              ),
+            ];
+          },
+        );
+
+        await tester.tap(find.text('Facturas'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('No se pudieron cargar las facturas'), findsOneWidget);
+        expect(find.textContaining('permisos suficientes'), findsOneWidget);
+
+        // Las demás pestañas siguen operativas pese al error en Facturas.
+        await tester.tap(find.text('Resumen'));
+        await tester.pumpAndSettle();
+        expect(find.text('Resumen de pedidos'), findsOneWidget);
+
+        await tester.tap(find.text('Facturas'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Reintentar'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('FAC-0005'), findsOneWidget);
+        expect(find.text('Elena Ruiz'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'actualiza sin duplicados y conserva facturas previas si falla una actualización',
+      (tester) async {
+        var intento = 0;
+        final completerActualizacion = Completer<List<Venta>>();
+
+        await montarVistaFacturas(
+          tester,
+          tamano: const Size(1400, 900),
+          onCargarFacturas: () {
+            intento++;
+            if (intento == 1) {
+              return Future.value([
+                crearFactura(
+                  id: 'FAC-0001',
+                  clienteNombre: 'Ana López',
+                  fecha: DateTime(2026, 11, 14, 10, 0),
+                  total: 500.0,
+                ),
+              ]);
+            }
+            if (intento == 2) {
+              return completerActualizacion.future;
+            }
+            return Future.error(
+              FirebaseException(
+                plugin: 'cloud_firestore',
+                code: 'unavailable',
+              ),
+            );
+          },
+        );
+
+        await tester.tap(find.text('Facturas'));
+        await tester.pumpAndSettle();
+        expect(find.text('FAC-0001'), findsOneWidget);
+
+        // Primera actualización: muestra indicador discreto y reemplaza sin duplicar.
+        await tester.tap(find.text('Actualizar'));
+        await tester.pump();
+        expect(find.text('Actualizando facturas...'), findsOneWidget);
+        expect(find.text('FAC-0001'), findsOneWidget);
+
+        completerActualizacion.complete([
+          crearFactura(
+            id: 'FAC-0002',
+            clienteNombre: 'Luis Gómez',
+            fecha: DateTime(2026, 11, 15, 10, 0),
+            total: 800.0,
+          ),
+          crearFactura(
+            id: 'FAC-0001',
+            clienteNombre: 'Ana López',
+            fecha: DateTime(2026, 11, 14, 10, 0),
+            total: 500.0,
+          ),
+        ]);
+        await tester.pumpAndSettle();
+
+        expect(find.text('FAC-0001'), findsOneWidget);
+        expect(find.text('FAC-0002'), findsOneWidget);
+
+        // Segunda actualización falla: conserva los datos y muestra aviso no bloqueante.
+        await tester.tap(find.text('Actualizar'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('FAC-0001'), findsOneWidget);
+        expect(find.text('FAC-0002'), findsOneWidget);
+        expect(find.textContaining('Error de conexión'), findsOneWidget);
+        expect(
+          find.textContaining('Se muestran las facturas disponibles en memoria'),
+          findsOneWidget,
+        );
       },
     );
   });
