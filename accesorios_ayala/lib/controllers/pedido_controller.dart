@@ -1,7 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/pedido.dart';
+import '../models/venta.dart';
 
 /// Categorías de error controladas al registrar un pedido en Firestore.
 enum TipoErrorPedido {
@@ -39,6 +41,7 @@ class PedidoController {
   static const String collection = 'pedidos';
   static const String contadoresCollection = 'contadores';
   static const String contadorDocId = 'pedidos';
+  static const String contadorFacturasDocId = 'facturas';
 
   /// Formatea un consecutivo entero positivo al formato oficial `PED-0001`.
   ///
@@ -56,6 +59,24 @@ class PedidoController {
       return 'PED-${numero.toString().padLeft(4, '0')}';
     }
     return 'PED-$numero';
+  }
+
+  /// Formatea un consecutivo entero positivo al formato oficial `FAC-0001`.
+  ///
+  /// Lanza [ArgumentError] si [numero] es menor que 1.
+  static String formatearNumeroFactura(int numero) {
+    if (numero < 1) {
+      throw ArgumentError.value(
+        numero,
+        'numero',
+        'El consecutivo de la factura debe ser mayor o igual a 1.',
+      );
+    }
+
+    if (numero < 1000) {
+      return 'FAC-${numero.toString().padLeft(4, '0')}';
+    }
+    return 'FAC-$numero';
   }
 
   /// Valida que el borrador cumpla todas las reglas previas de un pedido nuevo.
@@ -929,6 +950,182 @@ class PedidoController {
         tipo: TipoErrorPedido.errorTransaccion,
         mensaje: 'No se pudo eliminar el pedido: $e',
       );
+    }
+  }
+
+  /// Construye la instancia de [Venta] correspondiente a [pedido] reutilizando
+  /// los cálculos centralizados de [BorradorFacturaPedido].
+  @visibleForTesting
+  static Venta construirVentaParaPedido({
+    required Pedido pedido,
+    required String facturaNumero,
+    DateTime? fechaEmision,
+  }) {
+    final subtotal = pedido.subtotalProductos;
+    final borrador = pedido.borradorFactura;
+    final descuentoMonto = borrador.calcularDescuentoMonto(subtotal);
+    final impuesto = borrador.calcularImpuestoMonto(subtotal);
+    final total = borrador.calcularTotal(subtotal);
+
+    return Venta(
+      id: facturaNumero,
+      clienteId: pedido.clienteId.trim(),
+      clienteNombre: pedido.clienteNombre.trim(),
+      fecha: fechaEmision ?? DateTime.now(),
+      subtotal: subtotal,
+      impuesto: impuesto,
+      total: total,
+      envio: borrador.costoEnvio,
+      descuentoMayoristaActivo: borrador.descuentoMayoristaActivo,
+      descuentoPorcentaje: borrador.descuentoPorcentaje,
+      descuentoMonto: descuentoMonto,
+    );
+  }
+
+  /// Factura un pedido terminado en una única transacción atómica en servidor
+  /// mediante la Cloud Function `facturarPedido` (región `us-central1`) y
+  /// recarga el documento actualizado del pedido desde Firestore.
+  static Future<Pedido> facturarPedido({
+    required String pedidoId,
+    required DateTime? updatedAtEsperado,
+    FirebaseFirestore? firestore,
+    FirebaseFunctions? functions,
+  }) async {
+    final idLimpio = pedidoId.trim();
+    if (idLimpio.isEmpty) {
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.datosInvalidos,
+        mensaje: 'El identificador del pedido es obligatorio.',
+      );
+    }
+
+    if (updatedAtEsperado == null) {
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.datosInvalidos,
+        mensaje:
+            'Se requiere la versión actual del pedido (updatedAt) para facturar de forma segura.',
+      );
+    }
+
+    final db = firestore ?? FirebaseFirestore.instance;
+    final pedidoRef = db.collection(collection).doc(idLimpio);
+    final fnClient =
+        functions ?? FirebaseFunctions.instanceFor(region: 'us-central1');
+
+    try {
+      final callable = fnClient.httpsCallable('facturarPedido');
+      await callable.call<dynamic>(<String, dynamic>{
+        'pedidoId': idLimpio,
+        'updatedAtEsperadoMs': updatedAtEsperado.toUtc().millisecondsSinceEpoch,
+      });
+    } on PedidoControllerException {
+      rethrow;
+    } on FirebaseFunctionsException catch (e) {
+      throw _mapearFirebaseFunctionsException(e);
+    } catch (e) {
+      throw PedidoControllerException(
+        tipo: TipoErrorPedido.errorTransaccion,
+        mensaje: 'No se pudo facturar el pedido: $e',
+      );
+    }
+
+    try {
+      final confirmadoSnap = await pedidoRef.get();
+      final data = confirmadoSnap.data();
+      if (confirmadoSnap.exists && data != null) {
+        return Pedido.fromMap(data, id: confirmadoSnap.id);
+      }
+    } on FirebaseException catch (e) {
+      throw PedidoControllerException(
+        tipo: TipoErrorPedido.actualizacionConfirmadaSinRecarga,
+        mensaje:
+            'La factura se emitió en Firestore, pero no se pudo recuperar el pedido actualizado. Recarga el pedido para confirmar el número de factura.',
+        codigoFirebase: e.code,
+      );
+    } catch (_) {
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.actualizacionConfirmadaSinRecarga,
+        mensaje:
+            'La factura se emitió en Firestore, pero no se pudo recuperar el pedido actualizado. Recarga el pedido para confirmar el número de factura.',
+      );
+    }
+
+    throw const PedidoControllerException(
+      tipo: TipoErrorPedido.actualizacionConfirmadaSinRecarga,
+      mensaje:
+          'La factura se emitió en Firestore, pero el documento actualizado no pudo recuperarse. Recarga el pedido para confirmar el número de factura.',
+    );
+  }
+
+  static PedidoControllerException _mapearFirebaseFunctionsException(
+    FirebaseFunctionsException e,
+  ) {
+    final mensajeServidor = e.message?.trim();
+    final tieneMensaje = mensajeServidor != null && mensajeServidor.isNotEmpty;
+
+    switch (e.code) {
+      case 'unauthenticated':
+      case 'permission-denied':
+        return PedidoControllerException(
+          tipo: TipoErrorPedido.permisosInsuficientes,
+          mensaje: tieneMensaje
+              ? mensajeServidor
+              : 'No tienes permisos suficientes para facturar pedidos.',
+          codigoFirebase: e.code,
+        );
+      case 'not-found':
+        return PedidoControllerException(
+          tipo: TipoErrorPedido.pedidoNoEncontrado,
+          mensaje: tieneMensaje
+              ? mensajeServidor
+              : 'El pedido no existe o fue eliminado de Firestore.',
+          codigoFirebase: e.code,
+        );
+      case 'invalid-argument':
+        return PedidoControllerException(
+          tipo: TipoErrorPedido.datosInvalidos,
+          mensaje: tieneMensaje
+              ? mensajeServidor
+              : 'Los datos enviados para facturar el pedido no son válidos.',
+          codigoFirebase: e.code,
+        );
+      case 'failed-precondition':
+        final esConcurrencia = (mensajeServidor ?? '')
+            .toLowerCase()
+            .contains('modificado por otro administrador');
+        return PedidoControllerException(
+          tipo: esConcurrencia
+              ? TipoErrorPedido.conflictoConcurrencia
+              : TipoErrorPedido.datosInvalidos,
+          mensaje: tieneMensaje
+              ? mensajeServidor
+              : 'El pedido no cumple las condiciones requeridas para facturarse.',
+          codigoFirebase: e.code,
+        );
+      case 'aborted':
+        return PedidoControllerException(
+          tipo: TipoErrorPedido.conflictoConcurrencia,
+          mensaje: tieneMensaje
+              ? mensajeServidor
+              : 'Este pedido fue modificado por otro administrador. Recárgalo antes de facturar.',
+          codigoFirebase: e.code,
+        );
+      case 'unavailable':
+      case 'deadline-exceeded':
+        return PedidoControllerException(
+          tipo: TipoErrorPedido.errorConexion,
+          mensaje:
+              'Error de conexión al intentar facturar el pedido. Verifica tu internet e inténtalo nuevamente.',
+          codigoFirebase: e.code,
+        );
+      default:
+        return PedidoControllerException(
+          tipo: TipoErrorPedido.errorTransaccion,
+          mensaje: tieneMensaje
+              ? mensajeServidor
+              : 'No se pudo completar la facturación en el servidor.',
+          codigoFirebase: e.code,
+        );
     }
   }
 

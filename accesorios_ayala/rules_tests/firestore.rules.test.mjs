@@ -655,5 +655,313 @@ describe('Reglas de Seguridad de Firestore - Accesorios Ayala (demo-accesorios-a
 
       await assertFails(deleteDoc(doc(adminDb, 'pedidos', 'ped_1')));
     });
+
+    it('Administrador autorizado actualiza únicamente estadoElaboracion, estadoProduccion coherente y updatedAt con serverTimestamp()', async () => {
+      const adminDb = testEnv.authenticatedContext(ADMIN_UID_1).firestore();
+      const pedidoMultiItem = {
+        ...construirPedidoValido('ped_upd_ok', 'PED-0001'),
+        items: [
+          {
+            itemId: 'item_1',
+            productoId: 'prod_1',
+            nombre: 'Pulsera Artesanal',
+            cantidad: 2,
+            precioUnitario: 250,
+            imageUrl: null,
+            notaPersonalizacion: 'Iniciales A.M.',
+            estadoElaboracion: 'recibido',
+          },
+          {
+            itemId: 'item_2',
+            productoId: 'prod_1',
+            nombre: 'Pulsera Artesanal',
+            cantidad: 1,
+            precioUnitario: 250,
+            imageUrl: null,
+            notaPersonalizacion: 'Iniciales J.R.',
+            estadoElaboracion: 'recibido',
+          },
+        ],
+      };
+
+      const batch = writeBatch(adminDb);
+      batch.set(doc(adminDb, 'pedidos', 'ped_upd_ok'), pedidoMultiItem);
+      batch.set(doc(adminDb, 'contadores', 'pedidos'), {
+        ultimoNumero: 1,
+        ultimoPedidoId: 'ped_upd_ok',
+        updatedAt: serverTimestamp(),
+      });
+      await assertSucceeds(batch.commit());
+
+      // 1 terminado + 1 recibido -> estadoProduccion debe ser 'en_proceso'
+      const itemsParciales = [
+        { ...pedidoMultiItem.items[0], estadoElaboracion: 'terminado' },
+        { ...pedidoMultiItem.items[1], estadoElaboracion: 'recibido' },
+      ];
+      await assertSucceeds(
+        updateDoc(doc(adminDb, 'pedidos', 'ped_upd_ok'), {
+          items: itemsParciales,
+          estadoProduccion: 'en_proceso',
+          updatedAt: serverTimestamp(),
+        }),
+      );
+
+      // Todos terminados -> estadoProduccion debe ser 'terminado'
+      const itemsCompletos = [
+        { ...pedidoMultiItem.items[0], estadoElaboracion: 'terminado' },
+        { ...pedidoMultiItem.items[1], estadoElaboracion: 'terminado' },
+      ];
+      await assertSucceeds(
+        updateDoc(doc(adminDb, 'pedidos', 'ped_upd_ok'), {
+          items: itemsCompletos,
+          estadoProduccion: 'terminado',
+          updatedAt: serverTimestamp(),
+        }),
+      );
+    });
+
+    it('Deniega actualización de estados de producción a no autenticados y usuarios no administradores', async () => {
+      const adminDb = testEnv.authenticatedContext(ADMIN_UID_1).firestore();
+      const unauthDb = testEnv.unauthenticatedContext().firestore();
+      const otherDb = testEnv.authenticatedContext(UNAUTHORIZED_UID).firestore();
+
+      await assertSucceeds(
+        crearPedidoAtomico(adminDb, 'ped_upd_auth', 'PED-0001', 1),
+      );
+
+      const baseItem = construirPedidoValido('ped_upd_auth', 'PED-0001').items[0];
+      const payload = {
+        items: [{ ...baseItem, estadoElaboracion: 'en_proceso' }],
+        estadoProduccion: 'en_proceso',
+        updatedAt: serverTimestamp(),
+      };
+
+      await assertFails(
+        updateDoc(doc(unauthDb, 'pedidos', 'ped_upd_auth'), payload),
+      );
+      await assertFails(
+        updateDoc(doc(otherDb, 'pedidos', 'ped_upd_auth'), payload),
+      );
+    });
+
+    it('Deniega modificar precios, cantidades, personalizaciones, identificadores o reordenar/agregar/eliminar accesorios', async () => {
+      const adminDb = testEnv.authenticatedContext(ADMIN_UID_1).firestore();
+      const pedidoBase = {
+        ...construirPedidoValido('ped_upd_campos', 'PED-0001'),
+        items: [
+          {
+            itemId: 'item_1',
+            productoId: 'prod_1',
+            nombre: 'Pulsera Artesanal',
+            cantidad: 2,
+            precioUnitario: 250,
+            imageUrl: null,
+            notaPersonalizacion: 'Nota 1',
+            estadoElaboracion: 'recibido',
+          },
+          {
+            itemId: 'item_2',
+            productoId: 'prod_2',
+            nombre: 'Collar Dorado',
+            cantidad: 1,
+            precioUnitario: 350,
+            imageUrl: null,
+            notaPersonalizacion: 'Nota 2',
+            estadoElaboracion: 'recibido',
+          },
+        ],
+      };
+
+      const batch = writeBatch(adminDb);
+      batch.set(doc(adminDb, 'pedidos', 'ped_upd_campos'), pedidoBase);
+      batch.set(doc(adminDb, 'contadores', 'pedidos'), {
+        ultimoNumero: 1,
+        ultimoPedidoId: 'ped_upd_campos',
+        updatedAt: serverTimestamp(),
+      });
+      await assertSucceeds(batch.commit());
+
+      const ref = doc(adminDb, 'pedidos', 'ped_upd_campos');
+      const [item1, item2] = pedidoBase.items;
+
+      // Cambiar precioUnitario
+      await assertFails(
+        updateDoc(ref, {
+          items: [{ ...item1, precioUnitario: 100, estadoElaboracion: 'en_proceso' }, item2],
+          estadoProduccion: 'en_proceso',
+          updatedAt: serverTimestamp(),
+        }),
+      );
+
+      // Cambiar cantidad
+      await assertFails(
+        updateDoc(ref, {
+          items: [{ ...item1, cantidad: 5, estadoElaboracion: 'en_proceso' }, item2],
+          estadoProduccion: 'en_proceso',
+          updatedAt: serverTimestamp(),
+        }),
+      );
+
+      // Cambiar notaPersonalizacion
+      await assertFails(
+        updateDoc(ref, {
+          items: [{ ...item1, notaPersonalizacion: 'Alterada', estadoElaboracion: 'en_proceso' }, item2],
+          estadoProduccion: 'en_proceso',
+          updatedAt: serverTimestamp(),
+        }),
+      );
+
+      // Cambiar itemId o productoId
+      await assertFails(
+        updateDoc(ref, {
+          items: [{ ...item1, itemId: 'item_hack', estadoElaboracion: 'en_proceso' }, item2],
+          estadoProduccion: 'en_proceso',
+          updatedAt: serverTimestamp(),
+        }),
+      );
+      await assertFails(
+        updateDoc(ref, {
+          items: [{ ...item1, productoId: 'prod_hack', estadoElaboracion: 'en_proceso' }, item2],
+          estadoProduccion: 'en_proceso',
+          updatedAt: serverTimestamp(),
+        }),
+      );
+
+      // Reordenar accesorios
+      await assertFails(
+        updateDoc(ref, {
+          items: [item2, item1],
+          estadoProduccion: 'recibido',
+          updatedAt: serverTimestamp(),
+        }),
+      );
+
+      // Agregar o eliminar accesorios
+      await assertFails(
+        updateDoc(ref, {
+          items: [item1, item2, { ...item2, itemId: 'item_3' }],
+          estadoProduccion: 'recibido',
+          updatedAt: serverTimestamp(),
+        }),
+      );
+      await assertFails(
+        updateDoc(ref, {
+          items: [item1],
+          estadoProduccion: 'recibido',
+          updatedAt: serverTimestamp(),
+        }),
+      );
+    });
+
+    it('Deniega alterar envío/facturación, estados inválidos, estadoProduccion inconsistente y updatedAt manipulado', async () => {
+      const adminDb = testEnv.authenticatedContext(ADMIN_UID_1).firestore();
+      const pedidoBase = {
+        ...construirPedidoValido('ped_upd_consist', 'PED-0001'),
+        items: [
+          {
+            itemId: 'item_1',
+            productoId: 'prod_1',
+            nombre: 'Pulsera Artesanal',
+            cantidad: 1,
+            precioUnitario: 250,
+            imageUrl: null,
+            notaPersonalizacion: 'A',
+            estadoElaboracion: 'recibido',
+          },
+          {
+            itemId: 'item_2',
+            productoId: 'prod_1',
+            nombre: 'Pulsera Artesanal',
+            cantidad: 1,
+            precioUnitario: 250,
+            imageUrl: null,
+            notaPersonalizacion: 'B',
+            estadoElaboracion: 'recibido',
+          },
+        ],
+      };
+
+      const batch = writeBatch(adminDb);
+      batch.set(doc(adminDb, 'pedidos', 'ped_upd_consist'), pedidoBase);
+      batch.set(doc(adminDb, 'contadores', 'pedidos'), {
+        ultimoNumero: 1,
+        ultimoPedidoId: 'ped_upd_consist',
+        updatedAt: serverTimestamp(),
+      });
+      await assertSucceeds(batch.commit());
+
+      const ref = doc(adminDb, 'pedidos', 'ped_upd_consist');
+      const [item1, item2] = pedidoBase.items;
+      const itemsEnProceso = [
+        { ...item1, estadoElaboracion: 'terminado' },
+        { ...item2, estadoElaboracion: 'recibido' },
+      ];
+
+      // Alterar envío o facturación junto con estados
+      await assertFails(
+        updateDoc(ref, {
+          items: itemsEnProceso,
+          estadoProduccion: 'en_proceso',
+          costoEnvio: 0,
+          updatedAt: serverTimestamp(),
+        }),
+      );
+      await assertFails(
+        updateDoc(ref, {
+          items: itemsEnProceso,
+          estadoProduccion: 'en_proceso',
+          facturado: true,
+          updatedAt: serverTimestamp(),
+        }),
+      );
+
+      // Estado general inconsistente (1 terminado + 1 recibido no puede ser 'terminado' ni 'recibido')
+      await assertFails(
+        updateDoc(ref, {
+          items: itemsEnProceso,
+          estadoProduccion: 'terminado',
+          updatedAt: serverTimestamp(),
+        }),
+      );
+      await assertFails(
+        updateDoc(ref, {
+          items: itemsEnProceso,
+          estadoProduccion: 'recibido',
+          updatedAt: serverTimestamp(),
+        }),
+      );
+
+      // Valor de estado inválido
+      await assertFails(
+        updateDoc(ref, {
+          items: [{ ...item1, estadoElaboracion: 'cancelado' }, item2],
+          estadoProduccion: 'en_proceso',
+          updatedAt: serverTimestamp(),
+        }),
+      );
+
+      // Fecha de actualización manipulada (no serverTimestamp)
+      await assertFails(
+        updateDoc(ref, {
+          items: itemsEnProceso,
+          estadoProduccion: 'en_proceso',
+          updatedAt: Timestamp.fromDate(new Date('2026-11-14T12:00:00.000Z')),
+        }),
+      );
+
+      // Actualizar únicamente updatedAt sin cambiar ningún estadoElaboracion
+      await assertFails(
+        updateDoc(ref, {
+          updatedAt: serverTimestamp(),
+        }),
+      );
+      await assertFails(
+        updateDoc(ref, {
+          items: pedidoBase.items,
+          estadoProduccion: pedidoBase.estadoProduccion,
+          updatedAt: serverTimestamp(),
+        }),
+      );
+    });
   });
 });

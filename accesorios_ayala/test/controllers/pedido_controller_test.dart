@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:accesorios_ayala/controllers/pedido_controller.dart';
@@ -511,5 +513,369 @@ void main() {
         );
       },
     );
+
+    test('formatearNumeroFactura genera el formato oficial FAC-0001+', () {
+      expect(PedidoController.formatearNumeroFactura(1), 'FAC-0001');
+      expect(PedidoController.formatearNumeroFactura(9), 'FAC-0009');
+      expect(PedidoController.formatearNumeroFactura(10), 'FAC-0010');
+      expect(PedidoController.formatearNumeroFactura(999), 'FAC-0999');
+      expect(PedidoController.formatearNumeroFactura(1000), 'FAC-1000');
+      expect(
+        () => PedidoController.formatearNumeroFactura(0),
+        throwsArgumentError,
+      );
+    });
+
+    test(
+      'construirVentaParaPedido reutiliza BorradorFacturaPedido y genera mapa compatible con Venta',
+      () {
+        final pedido = _crearBorradorValido(
+          costoEnvio: 120.0,
+          borradorFactura: BorradorFacturaPedido(
+            impuestoPorcentaje: 15.0,
+            descuentoMayoristaActivo: true,
+            descuentoPorcentaje: 20.0,
+            costoEnvio: 120.0,
+          ),
+        );
+        // subtotal = 2 * 250 = 500; desc = 100; base = 400; imp = 60; total = 580
+        final fecha = DateTime.utc(2026, 11, 14, 18, 0);
+        final venta = PedidoController.construirVentaParaPedido(
+          pedido: pedido,
+          facturaNumero: 'FAC-0001',
+          fechaEmision: fecha,
+        );
+
+        expect(venta.id, 'FAC-0001');
+        expect(venta.clienteId, 'cli-1');
+        expect(venta.clienteNombre, 'Ana López');
+        expect(venta.subtotal, 500.0);
+        expect(venta.descuentoMayoristaActivo, isTrue);
+        expect(venta.descuentoPorcentaje, 20.0);
+        expect(venta.descuentoMonto, 100.0);
+        expect(venta.impuesto, 60.0);
+        expect(venta.envio, 120.0);
+        expect(venta.total, 580.0);
+        expect(venta.toMap()['id'], 'FAC-0001');
+      },
+    );
+
+    test(
+      'facturarPedido rechaza pedidoId vacío o updatedAtEsperado nulo',
+      () async {
+        await expectLater(
+          () => PedidoController.facturarPedido(
+            pedidoId: '  ',
+            updatedAtEsperado: DateTime.utc(2026, 11, 14),
+          ),
+          throwsA(
+            isA<PedidoControllerException>().having(
+              (e) => e.tipo,
+              'tipo',
+              TipoErrorPedido.datosInvalidos,
+            ),
+          ),
+        );
+
+        await expectLater(
+          () => PedidoController.facturarPedido(
+            pedidoId: 'ped-1',
+            updatedAtEsperado: null,
+          ),
+          throwsA(
+            isA<PedidoControllerException>().having(
+              (e) => e.tipo,
+              'tipo',
+              TipoErrorPedido.datosInvalidos,
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'facturarPedido invoca la Cloud Function facturarPedido con pedidoId y updatedAtEsperadoMs y recarga el pedido sin escrituras directas',
+      () async {
+        final updatedAtLocal = DateTime(2026, 11, 14, 12, 0, 0);
+        final esperadoMs = updatedAtLocal.toUtc().millisecondsSinceEpoch;
+        final pedidoFacturadoMap = {
+          ..._crearBorradorValido(
+            numeroPedido: 'PED-0001',
+            facturado: true,
+            ventaId: 'FAC-0001',
+            facturaNumero: 'FAC-0001',
+          ).toMap(),
+          'id': 'ped-1',
+          'updatedAt': Timestamp.fromDate(DateTime.utc(2026, 11, 14, 20, 0)),
+        };
+
+        final fakeFunctions = _FakeFirebaseFunctions(
+          onCall: (name, args) async {
+            return {'ok': true, 'facturaNumero': 'FAC-0001'};
+          },
+        );
+        final fakeFirestore = _FakeFirestore(
+          documentoPedido: pedidoFacturadoMap,
+        );
+
+        final resultado = await PedidoController.facturarPedido(
+          pedidoId: ' ped-1 ',
+          updatedAtEsperado: updatedAtLocal,
+          firestore: fakeFirestore,
+          functions: fakeFunctions,
+        );
+
+        expect(fakeFunctions.ultimaFuncion, 'facturarPedido');
+        expect(fakeFunctions.ultimoPayload, {
+          'pedidoId': 'ped-1',
+          'updatedAtEsperadoMs': esperadoMs,
+        });
+        expect(fakeFunctions.ultimoPayload!.keys, hasLength(2));
+        expect(fakeFirestore.coleccionesConsultadas, ['pedidos']);
+        expect(fakeFirestore.huboEscriturasOTransacciones, isFalse);
+        expect(resultado.id, 'ped-1');
+        expect(resultado.facturado, isTrue);
+        expect(resultado.ventaId, 'FAC-0001');
+        expect(resultado.facturaNumero, 'FAC-0001');
+      },
+    );
+
+    test(
+      'facturarPedido traduce FirebaseFunctionsException a PedidoControllerException',
+      () async {
+        final casos =
+            <({String code, String message, TipoErrorPedido esperado})>[
+              (
+                code: 'unauthenticated',
+                message: 'Se requiere autenticación.',
+                esperado: TipoErrorPedido.permisosInsuficientes,
+              ),
+              (
+                code: 'permission-denied',
+                message: 'No tienes permisos administrativos.',
+                esperado: TipoErrorPedido.permisosInsuficientes,
+              ),
+              (
+                code: 'not-found',
+                message: 'El pedido no existe.',
+                esperado: TipoErrorPedido.pedidoNoEncontrado,
+              ),
+              (
+                code: 'failed-precondition',
+                message:
+                    'Este pedido fue modificado por otro administrador. Recárgalo antes de facturar.',
+                esperado: TipoErrorPedido.conflictoConcurrencia,
+              ),
+              (
+                code: 'failed-precondition',
+                message: 'Todos los accesorios deben estar terminados.',
+                esperado: TipoErrorPedido.datosInvalidos,
+              ),
+              (
+                code: 'unavailable',
+                message: 'Servicio no disponible.',
+                esperado: TipoErrorPedido.errorConexion,
+              ),
+            ];
+
+        for (final caso in casos) {
+          final fakeFunctions = _FakeFirebaseFunctions(
+            onCall: (_, _) async {
+              throw FirebaseFunctionsException(
+                code: caso.code,
+                message: caso.message,
+              );
+            },
+          );
+          final fakeFirestore = _FakeFirestore(documentoPedido: const {});
+
+          await expectLater(
+            () => PedidoController.facturarPedido(
+              pedidoId: 'ped-1',
+              updatedAtEsperado: DateTime.utc(2026, 11, 14),
+              firestore: fakeFirestore,
+              functions: fakeFunctions,
+            ),
+            throwsA(
+              isA<PedidoControllerException>()
+                  .having((e) => e.tipo, 'tipo', caso.esperado)
+                  .having((e) => e.codigoFirebase, 'codigoFirebase', caso.code),
+            ),
+          );
+        }
+      },
+    );
+
+    test(
+      'facturarPedido informa actualizacionConfirmadaSinRecarga si falla la recarga posterior',
+      () async {
+        final fakeFunctions = _FakeFirebaseFunctions(
+          onCall: (_, _) async => {'ok': true, 'facturaNumero': 'FAC-0001'},
+        );
+        final fakeFirestore = _FakeFirestore(
+          errorEnGet: FirebaseException(
+            plugin: 'cloud_firestore',
+            code: 'unavailable',
+            message: 'Sin conexión',
+          ),
+        );
+
+        await expectLater(
+          () => PedidoController.facturarPedido(
+            pedidoId: 'ped-1',
+            updatedAtEsperado: DateTime.utc(2026, 11, 14),
+            firestore: fakeFirestore,
+            functions: fakeFunctions,
+          ),
+          throwsA(
+            isA<PedidoControllerException>().having(
+              (e) => e.tipo,
+              'tipo',
+              TipoErrorPedido.actualizacionConfirmadaSinRecarga,
+            ),
+          ),
+        );
+      },
+    );
   });
+}
+
+class _FakeFirebaseFunctions extends Fake implements FirebaseFunctions {
+  _FakeFirebaseFunctions({required this.onCall});
+
+  final Future<dynamic> Function(String name, Map<String, dynamic> args) onCall;
+  String? ultimaFuncion;
+  Map<String, dynamic>? ultimoPayload;
+
+  @override
+  HttpsCallable httpsCallable(
+    String name, {
+    HttpsCallableOptions? options,
+  }) {
+    ultimaFuncion = name;
+    return _FakeHttpsCallable(
+      onInvoke: (args) async {
+        ultimoPayload = Map<String, dynamic>.from(args);
+        return onCall(name, ultimoPayload!);
+      },
+    );
+  }
+}
+
+class _FakeHttpsCallable extends Fake implements HttpsCallable {
+  _FakeHttpsCallable({required this.onInvoke});
+
+  final Future<dynamic> Function(Map<String, dynamic> args) onInvoke;
+
+  @override
+  Future<HttpsCallableResult<T>> call<T>([dynamic parameters]) async {
+    final data = await onInvoke(
+      Map<String, dynamic>.from(parameters as Map<String, dynamic>),
+    );
+    return _FakeHttpsCallableResult<T>(data as T);
+  }
+}
+
+class _FakeHttpsCallableResult<T> extends Fake
+    implements HttpsCallableResult<T> {
+  _FakeHttpsCallableResult(this._data);
+
+  final T _data;
+
+  @override
+  T get data => _data;
+}
+
+class _FakeFirestore extends Fake implements FirebaseFirestore {
+  _FakeFirestore({this.documentoPedido, this.errorEnGet});
+
+  final Map<String, dynamic>? documentoPedido;
+  final Object? errorEnGet;
+  final List<String> coleccionesConsultadas = [];
+  bool huboEscriturasOTransacciones = false;
+
+  @override
+  CollectionReference<Map<String, dynamic>> collection(String collectionPath) {
+    coleccionesConsultadas.add(collectionPath);
+    if (collectionPath != PedidoController.collection) {
+      huboEscriturasOTransacciones = true;
+      throw StateError('Acceso inesperado a colección: $collectionPath');
+    }
+    return _FakeCollectionReference(this);
+  }
+
+  @override
+  Future<T> runTransaction<T>(
+    TransactionHandler<T> transactionHandler, {
+    Duration timeout = const Duration(seconds: 30),
+    int maxAttempts = 5,
+  }) {
+    huboEscriturasOTransacciones = true;
+    throw StateError('facturarPedido no debe abrir transacciones en cliente');
+  }
+}
+
+// ignore: subtype_of_sealed_class
+class _FakeCollectionReference extends Fake
+    implements CollectionReference<Map<String, dynamic>> {
+  _FakeCollectionReference(this._db);
+
+  final _FakeFirestore _db;
+
+  @override
+  DocumentReference<Map<String, dynamic>> doc([String? path]) {
+    return _FakeDocumentReference(_db, path ?? '');
+  }
+}
+
+// ignore: subtype_of_sealed_class
+class _FakeDocumentReference extends Fake
+    implements DocumentReference<Map<String, dynamic>> {
+  _FakeDocumentReference(this._db, this._id);
+
+  final _FakeFirestore _db;
+  final String _id;
+
+  @override
+  String get id => _id;
+
+  @override
+  Future<DocumentSnapshot<Map<String, dynamic>>> get([
+    GetOptions? options,
+  ]) async {
+    if (_db.errorEnGet != null) {
+      throw _db.errorEnGet!;
+    }
+    return _FakeDocumentSnapshot(_id, _db.documentoPedido);
+  }
+
+  @override
+  Future<void> set(Map<String, dynamic> data, [SetOptions? options]) {
+    _db.huboEscriturasOTransacciones = true;
+    throw StateError('No debe escribir directamente en Firestore');
+  }
+
+  @override
+  Future<void> update(Map<Object, Object?> data) {
+    _db.huboEscriturasOTransacciones = true;
+    throw StateError('No debe actualizar directamente en Firestore');
+  }
+}
+
+// ignore: subtype_of_sealed_class
+class _FakeDocumentSnapshot extends Fake
+    implements DocumentSnapshot<Map<String, dynamic>> {
+  _FakeDocumentSnapshot(this._id, this._data);
+
+  final String _id;
+  final Map<String, dynamic>? _data;
+
+  @override
+  String get id => _id;
+
+  @override
+  bool get exists => _data != null;
+
+  @override
+  Map<String, dynamic>? data() => _data;
 }

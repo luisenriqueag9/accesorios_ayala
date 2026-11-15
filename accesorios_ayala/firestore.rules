@@ -21,7 +21,9 @@ service cloud.firestore {
     }
 
     match /ventas/{ventaId} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin();
+
+      allow create, update, delete: if isAdmin() && !ventaId.matches('^FAC-.*');
     }
 
     match /cotizaciones/{cotizacionId} {
@@ -194,6 +196,11 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/pedidos/$(request.resource.data.ultimoPedidoId)).data.numeroPedido == formatearNumeroPedido(request.resource.data.ultimoNumero);
 
       allow delete: if false;
+    }
+
+    match /contadores/facturas {
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
     }
 
     function esEstadoElaboracionValido(estado) {
@@ -550,6 +557,7 @@ service cloud.firestore {
                 + (16 < items.size() ? items[16].precioUnitario * items[16].cantidad : 0.0)
                 + (17 < items.size() ? items[17].precioUnitario * items[17].cantidad : 0.0)
                 + (18 < items.size() ? items[18].precioUnitario * items[18].cantidad : 0.0)
+                + (19 < items.size() ? items[19].precioUnitario * items[19].cantidad : 0.0)
               ))
             ))
           ))

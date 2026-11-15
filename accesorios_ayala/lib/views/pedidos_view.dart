@@ -826,6 +826,8 @@ class _PedidosViewState extends State<PedidosView> {
     var guardando = false;
     var recargando = false;
     var eliminandoPedido = false;
+    var confirmandoFacturacion = false;
+    var facturandoPedido = false;
     var requiereRecarga = false;
     String? mensajeExito;
     String? mensajeError;
@@ -860,6 +862,8 @@ class _PedidosViewState extends State<PedidosView> {
               setDialogState(() {
                 guardando = false;
                 eliminandoPedido = false;
+                confirmandoFacturacion = false;
+                facturandoPedido = false;
                 requiereRecarga = necesitaRecarga;
                 mensajeExito = null;
                 mensajeError = mensajeMostrado;
@@ -1327,7 +1331,161 @@ class _PedidosViewState extends State<PedidosView> {
                 (tamanioVentana.height - (esVentanaEscritorio ? 48.0 : 32.0))
                     .clamp(320.0, 820.0);
             final bloqueadoPorOperacion =
-                guardando || recargando || eliminandoPedido;
+                guardando ||
+                recargando ||
+                eliminandoPedido ||
+                confirmandoFacturacion ||
+                facturandoPedido;
+
+            Future<void> facturarPedidoActual() async {
+              if (confirmandoFacturacion ||
+                  facturandoPedido ||
+                  !pedidoActual.puedeFacturarse(
+                    hayCambiosProvisionales: hayCambiosProvisionales,
+                    operacionEnCurso: bloqueadoPorOperacion,
+                    requiereRecarga: requiereRecarga,
+                  )) {
+                return;
+              }
+
+              setDialogState(() {
+                confirmandoFacturacion = true;
+              });
+
+              bool? confirmado;
+              try {
+                final numeroPedido = _numeroVisible(pedidoActual);
+                final totalEstimadoTexto =
+                    'L ${pedidoActual.totalEstimado.toStringAsFixed(2)}';
+                confirmado = await showDialog<bool>(
+                  context: dialogContext,
+                  builder: (confirmContext) {
+                    return AlertDialog(
+                      title: const Text('Confirmar facturación'),
+                      content: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            numeroPedido,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 6),
+                          Text('Cliente: ${pedidoActual.clienteNombre}'),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Total estimado: $totalEstimadoTexto',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 10),
+                          const Text(
+                            'El servidor calculará el total definitivo, asignará el número consecutivo de factura y marcará el pedido como facturado.',
+                            style: TextStyle(fontSize: 13, color: _grisTexto),
+                          ),
+                        ],
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () =>
+                              Navigator.of(confirmContext).pop(false),
+                          child: const Text('Cancelar'),
+                        ),
+                        ElevatedButton(
+                          onPressed: () =>
+                              Navigator.of(confirmContext).pop(true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _rojoMarca,
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text('Facturar pedido'),
+                        ),
+                      ],
+                    );
+                  },
+                );
+              } catch (_) {
+                confirmandoFacturacion = false;
+                if (dialogContext.mounted) {
+                  aplicarErrorDeActualizacion(
+                    mensajeMostrado:
+                        'No se pudo abrir la confirmación de facturación. Inténtalo nuevamente.',
+                    necesitaRecarga: false,
+                  );
+                }
+                return;
+              }
+
+              if (confirmado != true || !dialogContext.mounted) {
+                confirmandoFacturacion = false;
+                if (dialogContext.mounted) {
+                  setDialogState(() {
+                    confirmandoFacturacion = false;
+                  });
+                }
+                return;
+              }
+
+              final sigueElegibleTrasConfirmar = pedidoActual.puedeFacturarse(
+                hayCambiosProvisionales: hayCambiosProvisionales,
+                operacionEnCurso:
+                    guardando || recargando || eliminandoPedido || facturandoPedido,
+                requiereRecarga: requiereRecarga,
+              );
+              if (!sigueElegibleTrasConfirmar) {
+                setDialogState(() {
+                  confirmandoFacturacion = false;
+                });
+                return;
+              }
+
+              setDialogState(() {
+                confirmandoFacturacion = false;
+                facturandoPedido = true;
+                mensajeExito = null;
+                mensajeError = null;
+                permitirRecargar = false;
+              });
+
+              try {
+                final pedidoConfirmado =
+                    await PedidoController.facturarPedido(
+                      pedidoId: pedidoActual.id,
+                      updatedAtEsperado: pedidoActual.updatedAt,
+                    );
+
+                _actualizarPedidoEnLista(pedidoConfirmado);
+                if (!dialogContext.mounted) return;
+
+                final numeroFactura =
+                    (pedidoConfirmado.facturaNumero ??
+                            pedidoConfirmado.ventaId ??
+                            '')
+                        .trim();
+                setDialogState(() {
+                  pedidoActual = pedidoConfirmado;
+                  estadosProvisionales
+                    ..clear()
+                    ..addEntries(
+                      pedidoConfirmado.items.map(
+                        (item) => MapEntry(item.itemId, item.estadoElaboracion),
+                      ),
+                    );
+                  facturandoPedido = false;
+                  requiereRecarga = false;
+                  mensajeExito = numeroFactura.isNotEmpty
+                      ? 'Factura $numeroFactura emitida correctamente.'
+                      : 'Pedido facturado correctamente.';
+                  mensajeError = null;
+                  permitirRecargar = false;
+                });
+              } catch (e) {
+                if (!dialogContext.mounted) {
+                  facturandoPedido = false;
+                  return;
+                }
+                manejarExcepcionActualizacion(e);
+              }
+            }
             final puedeMostrarEliminarPedido =
                 !pedidoActual.facturado &&
                 pedidoActual.ventaId == null &&
@@ -1535,23 +1693,14 @@ class _PedidosViewState extends State<PedidosView> {
                                   _construirSeccionFacturacionDetalle(
                                     pedidoActual,
                                     puedeFacturar: puedeFacturar,
+                                    facturandoPedido: facturandoPedido,
                                     hayCambiosProvisionales:
                                         hayCambiosProvisionales,
                                     bloqueadoPorOperacion:
                                         bloqueadoPorOperacion,
                                     requiereRecarga: requiereRecarga,
                                     onFacturarTap: puedeFacturar
-                                        ? () {
-                                            ScaffoldMessenger.of(
-                                              context,
-                                            ).showSnackBar(
-                                              const SnackBar(
-                                                content: Text(
-                                                  'La emisión de facturas desde pedidos estará disponible en la siguiente etapa.',
-                                                ),
-                                              ),
-                                            );
-                                          }
+                                        ? facturarPedidoActual
                                         : null,
                                   );
 
@@ -1666,187 +1815,191 @@ class _PedidosViewState extends State<PedidosView> {
                           decoration: const BoxDecoration(
                             border: Border(top: BorderSide(color: _bordeSuave)),
                           ),
-                          child: Row(
-                            children: [
-                              if (guardando || eliminandoPedido)
-                                Expanded(
-                                  child: Row(
-                                    children: [
-                                      const SizedBox(
-                                        width: 15,
-                                        height: 15,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: _rojoMarca,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          eliminandoPedido
-                                              ? 'Eliminando pedido en Firestore...'
-                                              : 'Guardando cambios en Firestore...',
-                                          style: const TextStyle(
-                                            fontSize: 12.5,
-                                            fontWeight: FontWeight.w600,
-                                            color: _grisTexto,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                )
-                              else if (requiereRecarga)
-                                const Expanded(
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        Icons.sync_problem_rounded,
-                                        size: 16,
-                                        color: Color(0xFF991B1B),
-                                      ),
-                                      SizedBox(width: 6),
-                                      Expanded(
-                                        child: Text(
-                                          'Recarga requerida antes de volver a guardar',
-                                          style: TextStyle(
-                                            fontSize: 12.5,
-                                            fontWeight: FontWeight.w600,
-                                            color: Color(0xFF991B1B),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                )
-                              else if (hayCambiosProvisionales)
-                                const Expanded(
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        Icons.info_outline_rounded,
-                                        size: 16,
-                                        color: Color(0xFFB45309),
-                                      ),
-                                      SizedBox(width: 6),
-                                      Expanded(
-                                        child: Text(
-                                          'Cambios provisionales sin guardar',
-                                          style: TextStyle(
-                                            fontSize: 12.5,
-                                            fontWeight: FontWeight.w600,
-                                            color: Color(0xFFB45309),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                )
-                              else
-                                const Spacer(),
-                              const SizedBox(width: 12),
-                              Flexible(
-                                child: Wrap(
-                                  spacing: 10,
-                                  runSpacing: 8,
-                                  alignment: WrapAlignment.end,
+                          child: Builder(
+                            builder: (context) {
+                              Widget? estadoPie;
+                              if (guardando || eliminandoPedido) {
+                                estadoPie = Row(
                                   children: [
-                                    if (puedeMostrarEliminarPedido)
-                                      OutlinedButton.icon(
-                                        onPressed:
-                                            !bloqueadoPorOperacion &&
-                                                !requiereRecarga &&
-                                                !hayCambiosProvisionales
-                                            ? eliminarPedidoCompleto
-                                            : null,
-                                        icon: const Icon(
-                                          Icons.delete_forever_outlined,
-                                          size: 18,
-                                        ),
-                                        label: Text(
-                                          eliminandoPedido
-                                              ? 'Eliminando...'
-                                              : 'Eliminar pedido',
-                                        ),
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: const Color(
-                                            0xFFB91C1C,
-                                          ),
-                                          disabledForegroundColor: _grisTexto,
-                                          side: BorderSide(
-                                            color:
-                                                !bloqueadoPorOperacion &&
-                                                    !requiereRecarga &&
-                                                    !hayCambiosProvisionales
-                                                ? const Color(0xFFFCA5A5)
-                                                : _bordeSuave,
-                                          ),
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 14,
-                                            vertical: 12,
-                                          ),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              12,
-                                            ),
-                                          ),
-                                        ),
+                                    const SizedBox(
+                                      width: 15,
+                                      height: 15,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: _rojoMarca,
                                       ),
-                                    OutlinedButton(
-                                      onPressed: bloqueadoPorOperacion
-                                          ? null
-                                          : () => Navigator.of(
-                                              dialogContext,
-                                            ).pop(),
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor: _negroElegante,
-                                        side: const BorderSide(
-                                          color: _bordeSuave,
-                                        ),
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 18,
-                                          vertical: 12,
-                                        ),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            12,
-                                          ),
-                                        ),
-                                      ),
-                                      child: const Text('Cerrar'),
                                     ),
-                                    ElevatedButton(
-                                      onPressed:
-                                          hayCambiosProvisionales &&
-                                              !bloqueadoPorOperacion &&
-                                              !requiereRecarga
-                                          ? guardarCambios
-                                          : null,
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: _rojoMarca,
-                                        foregroundColor: Colors.white,
-                                        disabledBackgroundColor: _bordeSuave,
-                                        disabledForegroundColor: _grisTexto,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 20,
-                                          vertical: 12,
-                                        ),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            12,
-                                          ),
-                                        ),
-                                      ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
                                       child: Text(
-                                        guardando
-                                            ? 'Guardando...'
-                                            : 'Guardar cambios',
+                                        eliminandoPedido
+                                            ? 'Eliminando pedido en Firestore...'
+                                            : 'Guardando cambios en Firestore...',
+                                        style: const TextStyle(
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: _grisTexto,
+                                        ),
                                       ),
                                     ),
                                   ],
+                                );
+                              } else if (requiereRecarga) {
+                                estadoPie = const Row(
+                                  children: [
+                                    Icon(
+                                      Icons.sync_problem_rounded,
+                                      size: 16,
+                                      color: Color(0xFF991B1B),
+                                    ),
+                                    SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        'Recarga requerida antes de volver a guardar',
+                                        style: TextStyle(
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFF991B1B),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              } else if (hayCambiosProvisionales) {
+                                estadoPie = const Row(
+                                  children: [
+                                    Icon(
+                                      Icons.info_outline_rounded,
+                                      size: 16,
+                                      color: Color(0xFFB45309),
+                                    ),
+                                    SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        'Cambios provisionales sin guardar',
+                                        style: TextStyle(
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFFB45309),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              }
+
+                              final botonEliminar = OutlinedButton.icon(
+                                onPressed:
+                                    !bloqueadoPorOperacion &&
+                                        !requiereRecarga &&
+                                        !hayCambiosProvisionales
+                                    ? eliminarPedidoCompleto
+                                    : null,
+                                icon: const Icon(
+                                  Icons.delete_forever_outlined,
+                                  size: 18,
                                 ),
-                              ),
-                            ],
+                                label: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text(
+                                    eliminandoPedido
+                                        ? 'Eliminando...'
+                                        : 'Eliminar pedido',
+                                  ),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFFB91C1C),
+                                  disabledForegroundColor: _grisTexto,
+                                  side: BorderSide(
+                                    color:
+                                        !bloqueadoPorOperacion &&
+                                            !requiereRecarga &&
+                                            !hayCambiosProvisionales
+                                        ? const Color(0xFFFCA5A5)
+                                        : _bordeSuave,
+                                  ),
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: esVentanaEscritorio ? 14 : 10,
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                              );
+
+                              final botonGuardar = ElevatedButton(
+                                onPressed:
+                                    hayCambiosProvisionales &&
+                                        !bloqueadoPorOperacion &&
+                                        !requiereRecarga
+                                    ? guardarCambios
+                                    : null,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: _rojoMarca,
+                                  foregroundColor: Colors.white,
+                                  disabledBackgroundColor: _bordeSuave,
+                                  disabledForegroundColor: _grisTexto,
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: esVentanaEscritorio ? 20 : 12,
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text(
+                                    guardando
+                                        ? 'Guardando...'
+                                        : 'Guardar cambios',
+                                  ),
+                                ),
+                              );
+
+                              if (esVentanaEscritorio) {
+                                return Row(
+                                  children: [
+                                    if (estadoPie != null)
+                                      Expanded(child: estadoPie)
+                                    else
+                                      const Spacer(),
+                                    const SizedBox(width: 12),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (puedeMostrarEliminarPedido) ...[
+                                          botonEliminar,
+                                          const SizedBox(width: 10),
+                                        ],
+                                        botonGuardar,
+                                      ],
+                                    ),
+                                  ],
+                                );
+                              }
+
+                              return Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  if (estadoPie != null) ...[
+                                    estadoPie,
+                                    const SizedBox(height: 10),
+                                  ],
+                                  Row(
+                                    children: [
+                                      if (puedeMostrarEliminarPedido) ...[
+                                        Expanded(child: botonEliminar),
+                                        const SizedBox(width: 10),
+                                      ],
+                                      Expanded(child: botonGuardar),
+                                    ],
+                                  ),
+                                ],
+                              );
+                            },
                           ),
                         ),
                       ],
@@ -1928,6 +2081,7 @@ class _PedidosViewState extends State<PedidosView> {
   Widget _construirSeccionFacturacionDetalle(
     Pedido pedido, {
     required bool puedeFacturar,
+    required bool facturandoPedido,
     required bool hayCambiosProvisionales,
     required bool bloqueadoPorOperacion,
     required bool requiereRecarga,
@@ -1949,6 +2103,8 @@ class _PedidosViewState extends State<PedidosView> {
         descripcionEstado =
             'Este pedido ya fue facturado y no permite generar una segunda factura.';
       }
+    } else if (facturandoPedido) {
+      descripcionEstado = 'Emitiendo factura en el servidor...';
     } else if (bloqueadoPorOperacion) {
       descripcionEstado =
           'Espera a que termine la operación actual antes de facturar.';
@@ -1963,7 +2119,7 @@ class _PedidosViewState extends State<PedidosView> {
           'Disponible únicamente cuando todos los accesorios estén terminados.';
     } else {
       descripcionEstado =
-          'Pedido listo para facturar. La emisión estará disponible en la siguiente etapa.';
+          'Todos los accesorios están terminados. Pedido listo para facturar.';
     }
 
     return _construirSeccionDetalle(
@@ -2006,8 +2162,16 @@ class _PedidosViewState extends State<PedidosView> {
           ],
           OutlinedButton.icon(
             onPressed: puedeFacturar ? onFacturarTap : null,
-            icon: const Icon(Icons.receipt_long_rounded, size: 18),
-            label: const Text('Facturar pedido'),
+            icon: facturandoPedido
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.receipt_long_rounded, size: 18),
+            label: Text(
+              facturandoPedido ? 'Facturando...' : 'Facturar pedido',
+            ),
             style: OutlinedButton.styleFrom(
               foregroundColor: _rojoMarca,
               disabledForegroundColor: _grisTexto.withValues(alpha: 0.65),

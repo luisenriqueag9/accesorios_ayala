@@ -1,0 +1,17 @@
+{
+  "name": "accesorios-ayala-functions",
+  "description": "Cloud Functions para Accesorios Ayala",
+  "private": true,
+  "engines": {
+    "node": "22"
+  },
+  "main": "index.js",
+  "scripts": {
+    "check": "node --check index.js && node --check facturar_pedido_core.js",
+    "test": "node --test test/facturar_pedido.test.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0",
+    "firebase-functions": "^6.0.0"
+  }
+}
