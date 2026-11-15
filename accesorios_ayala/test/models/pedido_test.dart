@@ -768,4 +768,81 @@ void main() {
       expect(pedido.puedeFacturarse(operacionEnCurso: true), isFalse);
     });
   });
+
+  group('Recálculo al quitar un accesorio por itemId', () {
+    test(
+      'quita por itemId uno de dos accesorios del mismo producto y recalcula importes y estado',
+      () {
+        final itemConservar = PedidoItem(
+          itemId: 'item-a',
+          productoId: 'prod-1',
+          nombre: 'Pulsera Dorada',
+          cantidad: 2,
+          precioUnitario: 250.0,
+          notaPersonalizacion: 'Iniciales A.L.',
+          estadoElaboracion: EstadoElaboracionPedido.terminado,
+        );
+        final itemQuitar = PedidoItem(
+          itemId: 'item-b',
+          productoId: 'prod-1',
+          nombre: 'Pulsera Dorada',
+          cantidad: 1,
+          precioUnitario: 250.0,
+          notaPersonalizacion: 'Iniciales M.P.',
+          estadoElaboracion: EstadoElaboracionPedido.recibido,
+        );
+
+        final pedidoOriginal = Pedido(
+          id: 'ped-rec-1',
+          numeroPedido: 'PED-0050',
+          clienteId: 'cli-1',
+          clienteNombre: 'Ana López',
+          items: [itemConservar, itemQuitar],
+          costoEnvio: 100.0,
+          borradorFactura: BorradorFacturaPedido(
+            impuestoPorcentaje: 15.0,
+            descuentoMayoristaActivo: true,
+            descuentoPorcentaje: 10.0,
+            costoEnvio: 100.0,
+          ),
+        );
+
+        expect(pedidoOriginal.estadoProduccion, EstadoElaboracionPedido.enProceso);
+        expect(pedidoOriginal.subtotalProductos, 750.0);
+
+        final restantes = pedidoOriginal.items
+            .where((item) => item.itemId != 'item-b')
+            .toList();
+        final pedidoActualizado = pedidoOriginal.copyWith(items: restantes);
+
+        expect(pedidoActualizado.items, hasLength(1));
+        expect(pedidoActualizado.items.single.itemId, 'item-a');
+        expect(
+          pedidoActualizado.items.single.notaPersonalizacion,
+          'Iniciales A.L.',
+        );
+        expect(
+          pedidoActualizado.estadoProduccion,
+          EstadoElaboracionPedido.terminado,
+        );
+        expect(pedidoActualizado.subtotalProductos, 500.0);
+        expect(
+          pedidoActualizado.borradorFactura.calcularDescuentoMonto(500.0),
+          50.0,
+        );
+        expect(
+          pedidoActualizado.borradorFactura.calcularImpuestoMonto(500.0),
+          67.5,
+        );
+        expect(pedidoActualizado.totalEstimado, 617.5);
+        expect(pedidoActualizado.borradorFactura.costoEnvio, 100.0);
+        expect(pedidoActualizado.borradorFactura.impuestoPorcentaje, 15.0);
+        expect(
+          pedidoActualizado.borradorFactura.descuentoMayoristaActivo,
+          isTrue,
+        );
+        expect(pedidoActualizado.borradorFactura.descuentoPorcentaje, 10.0);
+      },
+    );
+  });
 }

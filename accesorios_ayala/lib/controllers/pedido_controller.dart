@@ -664,6 +664,198 @@ class PedidoController {
     }
   }
 
+  /// Filtra la lista original de mapas de Firestore conservando intactos los
+  /// accesorios restantes (sin reconvertirlos mediante `PedidoItem.fromMap` y
+  /// `toMap`), exigiendo una coincidencia única de [itemId] y al menos un
+  /// accesorio restante.
+  @visibleForTesting
+  static List<Map<dynamic, dynamic>> filtrarItemsOriginalesSinAccesorio({
+    required dynamic rawItems,
+    required String itemId,
+  }) {
+    if (rawItems is! List) {
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.datosInvalidos,
+        mensaje:
+            'La lista de accesorios del pedido tiene un formato inválido en Firestore.',
+      );
+    }
+
+    var coincidencias = 0;
+    final itemsRestantes = <Map<dynamic, dynamic>>[];
+
+    for (final entry in rawItems) {
+      if (entry is! Map) {
+        throw const PedidoControllerException(
+          tipo: TipoErrorPedido.datosInvalidos,
+          mensaje:
+              'Uno de los accesorios del pedido tiene un formato inválido en Firestore.',
+        );
+      }
+
+      final entryItemId = (entry['itemId'] ?? '').toString();
+      if (entryItemId == itemId) {
+        coincidencias++;
+      } else {
+        itemsRestantes.add(entry);
+      }
+    }
+
+    if (coincidencias == 0) {
+      throw PedidoControllerException(
+        tipo: TipoErrorPedido.datosInvalidos,
+        mensaje: 'No se encontró el accesorio "$itemId" dentro del pedido.',
+      );
+    }
+    if (coincidencias > 1) {
+      throw PedidoControllerException(
+        tipo: TipoErrorPedido.datosInvalidos,
+        mensaje:
+            'El identificador "$itemId" es ambiguo porque aparece más de una vez en el pedido.',
+      );
+    }
+    if (rawItems.length <= 1) {
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.datosInvalidos,
+        mensaje:
+            'No se puede eliminar el último accesorio del pedido. Para anularlo por completo, cancela o elimina el pedido en una etapa posterior.',
+      );
+    }
+
+    return itemsRestantes;
+  }
+
+  /// Elimina un accesorio específico identificado por [itemId] de un pedido
+  /// existente en Firestore mediante una transacción, recalculando
+  /// [estadoProduccion], [borradorFactura] y [keywordsBusqueda] sin alterar
+  /// los demás accesorios ni los parámetros comerciales.
+  static Future<Pedido> eliminarAccesorioPedido({
+    required String pedidoId,
+    required String itemId,
+    required DateTime? updatedAtEsperado,
+    FirebaseFirestore? firestore,
+  }) async {
+    final idLimpio = pedidoId.trim();
+    if (idLimpio.isEmpty) {
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.datosInvalidos,
+        mensaje: 'El identificador del pedido es obligatorio.',
+      );
+    }
+
+    final itemIdLimpio = itemId.trim();
+    if (itemIdLimpio.isEmpty) {
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.datosInvalidos,
+        mensaje: 'El identificador del accesorio es obligatorio.',
+      );
+    }
+
+    if (updatedAtEsperado == null) {
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.datosInvalidos,
+        mensaje:
+            'Se requiere la versión actual del pedido (updatedAt) para eliminar un accesorio de forma segura.',
+      );
+    }
+
+    final db = firestore ?? FirebaseFirestore.instance;
+    final pedidoRef = db.collection(collection).doc(idLimpio);
+
+    try {
+      await db.runTransaction<void>((tx) async {
+        final snapshot = await tx.get(pedidoRef);
+        final data = snapshot.data();
+
+        if (!snapshot.exists || data == null) {
+          throw const PedidoControllerException(
+            tipo: TipoErrorPedido.pedidoNoEncontrado,
+            mensaje: 'El pedido no existe o fue eliminado de Firestore.',
+          );
+        }
+
+        final pedidoActual = Pedido.fromMap(data, id: snapshot.id);
+        final marcaActual =
+            pedidoActual.updatedAt?.toUtc().microsecondsSinceEpoch;
+        final marcaEsperada = updatedAtEsperado.toUtc().microsecondsSinceEpoch;
+
+        if (marcaActual != marcaEsperada) {
+          throw const PedidoControllerException(
+            tipo: TipoErrorPedido.conflictoConcurrencia,
+            mensaje:
+                'Este pedido fue modificado por otro administrador. Recárgalo antes de continuar.',
+          );
+        }
+
+        if (pedidoActual.facturado || pedidoActual.ventaId != null) {
+          throw const PedidoControllerException(
+            tipo: TipoErrorPedido.datosInvalidos,
+            mensaje:
+                'No se puede quitar un accesorio de un pedido ya facturado.',
+          );
+        }
+
+        final itemsRestantesRaw = filtrarItemsOriginalesSinAccesorio(
+          rawItems: data['items'],
+          itemId: itemIdLimpio,
+        );
+
+        final nuevosItems = pedidoActual.items
+            .where((item) => item.itemId != itemIdLimpio)
+            .toList(growable: false);
+
+        final pedidoActualizado = pedidoActual.copyWith(items: nuevosItems);
+        final nuevoSubtotal = pedidoActualizado.subtotalProductos;
+
+        tx.update(pedidoRef, {
+          'items': itemsRestantesRaw,
+          'estadoProduccion': pedidoActualizado.estadoProduccion.valorFirestore,
+          'borradorFactura': pedidoActualizado.borradorFactura.toMap(
+            subtotalProductos: nuevoSubtotal,
+          ),
+          'keywordsBusqueda': pedidoActualizado.keywordsBusqueda,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      });
+
+      try {
+        final confirmadoSnap = await pedidoRef.get();
+        final data = confirmadoSnap.data();
+        if (confirmadoSnap.exists && data != null) {
+          return Pedido.fromMap(data, id: confirmadoSnap.id);
+        }
+      } on FirebaseException catch (e) {
+        throw PedidoControllerException(
+          tipo: TipoErrorPedido.actualizacionConfirmadaSinRecarga,
+          mensaje:
+              'El accesorio se eliminó en Firestore, pero no se pudo recuperar la versión actualizada del pedido. Recarga el pedido antes de continuar editando.',
+          codigoFirebase: e.code,
+        );
+      } catch (_) {
+        throw const PedidoControllerException(
+          tipo: TipoErrorPedido.actualizacionConfirmadaSinRecarga,
+          mensaje:
+              'El accesorio se eliminó en Firestore, pero no se pudo recuperar la versión actualizada del pedido. Recarga el pedido antes de continuar editando.',
+        );
+      }
+
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.actualizacionConfirmadaSinRecarga,
+        mensaje:
+            'El accesorio se eliminó en Firestore, pero el documento actualizado no pudo recuperarse. Recarga el pedido antes de continuar editando.',
+      );
+    } on PedidoControllerException {
+      rethrow;
+    } on FirebaseException catch (e) {
+      throw _mapearFirebaseException(e, esActualizacion: true);
+    } catch (e) {
+      throw PedidoControllerException(
+        tipo: TipoErrorPedido.errorTransaccion,
+        mensaje: 'No se pudo eliminar el accesorio del pedido: $e',
+      );
+    }
+  }
+
   static PedidoControllerException _mapearFirebaseException(
     FirebaseException e, {
     bool esLectura = false,

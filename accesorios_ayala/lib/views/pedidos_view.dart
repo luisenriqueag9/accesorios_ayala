@@ -1118,6 +1118,103 @@ class _PedidosViewState extends State<PedidosView> {
               }
             }
 
+            Future<void> eliminarAccesorio(PedidoItem item) async {
+              if (guardando ||
+                  recargando ||
+                  requiereRecarga ||
+                  hayCambiosProvisionales ||
+                  pedidoActual.facturado ||
+                  pedidoActual.ventaId != null ||
+                  pedidoActual.items.length <= 1) {
+                return;
+              }
+
+              final nota = item.notaPersonalizacion.trim();
+              final confirmado = await showDialog<bool>(
+                context: dialogContext,
+                builder: (confirmContext) {
+                  return AlertDialog(
+                    title: const Text('Quitar accesorio'),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.nombre,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Personalización: ${nota.isNotEmpty ? nota : 'Sin personalización'}',
+                        ),
+                        const SizedBox(height: 4),
+                        Text('Cantidad: ${item.cantidad}'),
+                        const SizedBox(height: 10),
+                        const Text(
+                          'Al quitar este accesorio se actualizarán los importes del pedido y su progreso de producción.',
+                          style: TextStyle(fontSize: 13, color: _grisTexto),
+                        ),
+                      ],
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(confirmContext).pop(false),
+                        child: const Text('Cancelar'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () => Navigator.of(confirmContext).pop(true),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _rojoMarca,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('Quitar accesorio'),
+                      ),
+                    ],
+                  );
+                },
+              );
+              if (confirmado != true || !dialogContext.mounted) return;
+
+              setDialogState(() {
+                guardando = true;
+                mensajeExito = null;
+                mensajeError = null;
+                permitirRecargar = false;
+              });
+
+              try {
+                final pedidoConfirmado =
+                    await PedidoController.eliminarAccesorioPedido(
+                      pedidoId: pedidoActual.id,
+                      itemId: item.itemId,
+                      updatedAtEsperado: pedidoActual.updatedAt,
+                    );
+
+                _actualizarPedidoEnLista(pedidoConfirmado);
+                if (!dialogContext.mounted) return;
+
+                setDialogState(() {
+                  pedidoActual = pedidoConfirmado;
+                  estadosProvisionales
+                    ..clear()
+                    ..addEntries(
+                      pedidoConfirmado.items.map(
+                        (it) => MapEntry(it.itemId, it.estadoElaboracion),
+                      ),
+                    );
+                  guardando = false;
+                  requiereRecarga = false;
+                  mensajeExito =
+                      'Accesorio quitado del pedido y totales actualizados.';
+                  mensajeError = null;
+                  permitirRecargar = false;
+                });
+              } catch (e) {
+                if (!dialogContext.mounted) return;
+                manejarExcepcionActualizacion(e);
+              }
+            }
+
             final tamanioVentana = MediaQuery.sizeOf(dialogContext);
             final esVentanaEscritorio =
                 tamanioVentana.width >= _breakpointEscritorio;
@@ -1262,6 +1359,22 @@ class _PedidosViewState extends State<PedidosView> {
                                             _construirItemDetalle(
                                               pedidoProvisional.items[i],
                                               esEscritorio: esDialogoEscritorio,
+                                              onEliminar:
+                                                  !bloqueadoPorOperacion &&
+                                                      !requiereRecarga &&
+                                                      !hayCambiosProvisionales &&
+                                                      !pedidoActual.facturado &&
+                                                      pedidoActual.ventaId ==
+                                                          null &&
+                                                      pedidoActual
+                                                              .items
+                                                              .length >
+                                                          1
+                                                  ? () => eliminarAccesorio(
+                                                      pedidoProvisional
+                                                          .items[i],
+                                                    )
+                                                  : null,
                                               onEstadoSeleccionado:
                                                   bloqueadoPorOperacion
                                                   ? null
@@ -1994,6 +2107,7 @@ class _PedidosViewState extends State<PedidosView> {
     PedidoItem item, {
     required bool esEscritorio,
     ValueChanged<EstadoElaboracionPedido>? onEstadoSeleccionado,
+    VoidCallback? onEliminar,
   }) {
     final nota = item.notaPersonalizacion.trim();
 
@@ -2007,13 +2121,35 @@ class _PedidosViewState extends State<PedidosView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            item.nombre,
-            style: TextStyle(
-              fontSize: esEscritorio ? 14 : 14.5,
-              fontWeight: FontWeight.w700,
-              color: _negroElegante,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  item.nombre,
+                  style: TextStyle(
+                    fontSize: esEscritorio ? 14 : 14.5,
+                    fontWeight: FontWeight.w700,
+                    color: _negroElegante,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                onPressed: onEliminar,
+                tooltip: 'Quitar accesorio',
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                icon: Icon(
+                  Icons.delete_outline_rounded,
+                  size: 18,
+                  color: onEliminar != null
+                      ? _rojoMarca
+                      : _grisTexto.withValues(alpha: 0.4),
+                ),
+              ),
+            ],
           ),
           SizedBox(height: esEscritorio ? 6 : 8),
           Wrap(

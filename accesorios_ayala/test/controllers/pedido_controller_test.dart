@@ -370,5 +370,146 @@ void main() {
         );
       },
     );
+
+    test(
+      'eliminarAccesorioPedido rechaza pedidoId vacío, itemId vacío o updatedAt nulo',
+      () async {
+        await expectLater(
+          () => PedidoController.eliminarAccesorioPedido(
+            pedidoId: '  ',
+            itemId: 'item-1',
+            updatedAtEsperado: DateTime.utc(2026, 11, 14),
+          ),
+          throwsA(
+            isA<PedidoControllerException>().having(
+              (e) => e.tipo,
+              'tipo',
+              TipoErrorPedido.datosInvalidos,
+            ),
+          ),
+        );
+
+        await expectLater(
+          () => PedidoController.eliminarAccesorioPedido(
+            pedidoId: 'ped-1',
+            itemId: '  ',
+            updatedAtEsperado: DateTime.utc(2026, 11, 14),
+          ),
+          throwsA(
+            isA<PedidoControllerException>().having(
+              (e) => e.tipo,
+              'tipo',
+              TipoErrorPedido.datosInvalidos,
+            ),
+          ),
+        );
+
+        await expectLater(
+          () => PedidoController.eliminarAccesorioPedido(
+            pedidoId: 'ped-1',
+            itemId: 'item-1',
+            updatedAtEsperado: null,
+          ),
+          throwsA(
+            isA<PedidoControllerException>().having(
+              (e) => e.tipo,
+              'tipo',
+              TipoErrorPedido.datosInvalidos,
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'filtrarItemsOriginalesSinAccesorio conserva claves, valores y tipos originales de los accesorios restantes',
+      () {
+        final itemRestante = <String, dynamic>{
+          'itemId': 'item-1',
+          'productoId': 'prod-1',
+          'nombre': 'Pulsera Dorada',
+          'cantidad': 1,
+          'precioUnitario': 220, // int original (toMap lo convertiría a double)
+          'imageUrl': null,
+          'notaPersonalizacion': 'negra',
+          'estadoElaboracion': 'terminado',
+          'campoLegacy': 42,
+        };
+        final itemEliminado = <String, dynamic>{
+          'itemId': 'item-2',
+          'productoId': 'prod-1',
+          'nombre': 'Pulsera Dorada',
+          'cantidad': 1,
+          'precioUnitario': 220,
+          'imageUrl': null,
+          'notaPersonalizacion': 'gris',
+          'estadoElaboracion': 'recibido',
+        };
+
+        final resultado = PedidoController.filtrarItemsOriginalesSinAccesorio(
+          rawItems: [itemRestante, itemEliminado],
+          itemId: 'item-2',
+        );
+
+        expect(resultado, hasLength(1));
+        expect(identical(resultado.first, itemRestante), isTrue);
+        expect(resultado.first['precioUnitario'], isA<int>());
+        expect(resultado.first['precioUnitario'], 220);
+        expect(resultado.first['campoLegacy'], 42);
+        expect(resultado.first.containsKey('imageUrl'), isTrue);
+        expect(resultado.first['imageUrl'], isNull);
+        expect(resultado.first['notaPersonalizacion'], 'negra');
+      },
+    );
+
+    test(
+      'filtrarItemsOriginalesSinAccesorio exige coincidencia única y al menos un accesorio restante',
+      () {
+        final item1 = <String, dynamic>{'itemId': 'item-1'};
+        final item2 = <String, dynamic>{'itemId': 'item-2'};
+
+        expect(
+          () => PedidoController.filtrarItemsOriginalesSinAccesorio(
+            rawItems: [item1, item2],
+            itemId: 'item-inexistente',
+          ),
+          throwsA(
+            isA<PedidoControllerException>().having(
+              (e) => e.tipo,
+              'tipo',
+              TipoErrorPedido.datosInvalidos,
+            ),
+          ),
+        );
+
+        expect(
+          () => PedidoController.filtrarItemsOriginalesSinAccesorio(
+            rawItems: [item1, item1],
+            itemId: 'item-1',
+          ),
+          throwsA(
+            isA<PedidoControllerException>().having(
+              (e) => e.tipo,
+              'tipo',
+              TipoErrorPedido.datosInvalidos,
+            ),
+          ),
+        );
+
+        expect(
+          () => PedidoController.filtrarItemsOriginalesSinAccesorio(
+            rawItems: [item1],
+            itemId: 'item-1',
+          ),
+          throwsA(
+            isA<PedidoControllerException>().having(
+              (e) => e.tipo,
+              'tipo',
+              TipoErrorPedido.datosInvalidos,
+            ),
+          ),
+        );
+      },
+    );
   });
 }

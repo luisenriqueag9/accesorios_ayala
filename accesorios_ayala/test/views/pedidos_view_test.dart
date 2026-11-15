@@ -216,4 +216,150 @@ void main() {
       },
     );
   });
+
+  group('PedidosView - Quitar accesorio del pedido', () {
+    List<IconButton> obtenerBotonesQuitar(WidgetTester tester) {
+      return tester
+          .widgetList<IconButton>(
+            find.ancestor(
+              of: find.byTooltip('Quitar accesorio'),
+              matching: find.byType(IconButton),
+            ),
+          )
+          .toList();
+    }
+
+    testWidgets(
+      'habilita Quitar accesorio con múltiples ítems y lo bloquea con cambios provisionales',
+      (tester) async {
+        await abrirDetallePedido(tester, crearPedido());
+
+        final botones = obtenerBotonesQuitar(tester);
+        expect(botones, hasLength(2));
+        expect(botones.every((b) => b.onPressed != null), isTrue);
+
+        await tester.tap(find.text('En proceso').first);
+        await tester.pumpAndSettle();
+
+        final botonesBloqueados = obtenerBotonesQuitar(tester);
+        expect(botonesBloqueados.every((b) => b.onPressed == null), isTrue);
+      },
+    );
+
+    testWidgets(
+      'deshabilita Quitar accesorio cuando solo queda un accesorio o el pedido está facturado',
+      (tester) async {
+        final pedidoUnItem = Pedido(
+          id: 'ped-uno',
+          numeroPedido: 'PED-0030',
+          clienteId: 'cli-1',
+          clienteNombre: 'Ana López',
+          items: [
+            PedidoItem(
+              itemId: 'item-1',
+              productoId: 'prod-1',
+              nombre: 'Pulsera Única',
+              cantidad: 1,
+              precioUnitario: 200.0,
+            ),
+          ],
+        );
+
+        await abrirDetallePedido(tester, pedidoUnItem);
+        final botonesUnItem = obtenerBotonesQuitar(tester);
+        expect(botonesUnItem, hasLength(1));
+        expect(botonesUnItem.single.onPressed, isNull);
+
+        await tester.tap(find.text('Cerrar'));
+        await tester.pumpAndSettle();
+
+        await abrirDetallePedido(
+          tester,
+          crearPedido(
+            facturado: true,
+            ventaId: 'venta-99',
+            facturaNumero: 'FAC-0099',
+          ),
+        );
+        final botonesFacturado = obtenerBotonesQuitar(tester);
+        expect(botonesFacturado.every((b) => b.onPressed == null), isTrue);
+      },
+    );
+
+    testWidgets(
+      'muestra confirmación con nombre, personalización y aviso de recálculo antes de eliminar',
+      (tester) async {
+        final pedidoPersonalizado = Pedido(
+          id: 'ped-pers',
+          numeroPedido: 'PED-0031',
+          clienteId: 'cli-1',
+          clienteNombre: 'Ana López',
+          items: [
+            PedidoItem(
+              itemId: 'item-1',
+              productoId: 'prod-1',
+              nombre: 'Pulsera Dorada',
+              cantidad: 1,
+              precioUnitario: 200.0,
+              notaPersonalizacion: 'Iniciales A.L.',
+            ),
+            PedidoItem(
+              itemId: 'item-2',
+              productoId: 'prod-1',
+              nombre: 'Pulsera Dorada',
+              cantidad: 2,
+              precioUnitario: 200.0,
+              notaPersonalizacion: 'Iniciales M.P.',
+            ),
+          ],
+        );
+
+        await abrirDetallePedido(tester, pedidoPersonalizado);
+
+        await tester.tap(find.byTooltip('Quitar accesorio').last);
+        await tester.pumpAndSettle();
+
+        final dialogoConfirmacion = find.byType(AlertDialog);
+        expect(dialogoConfirmacion, findsOneWidget);
+        expect(
+          find.descendant(
+            of: dialogoConfirmacion,
+            matching: find.text('Pulsera Dorada'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: dialogoConfirmacion,
+            matching: find.text('Personalización: Iniciales M.P.'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: dialogoConfirmacion,
+            matching: find.text('Cantidad: 2'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: dialogoConfirmacion,
+            matching: find.textContaining(
+              'se actualizarán los importes del pedido',
+            ),
+          ),
+          findsOneWidget,
+        );
+
+        await tester.tap(
+          find.descendant(
+            of: dialogoConfirmacion,
+            matching: find.text('Cancelar'),
+          ),
+        );
+        await tester.pumpAndSettle();
+      },
+    );
+  });
 }

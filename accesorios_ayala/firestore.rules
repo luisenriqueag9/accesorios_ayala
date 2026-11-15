@@ -240,25 +240,33 @@ service cloud.firestore {
 
     function todosItemsEnEstado(items, estadoObjetivo) {
       return (0 >= items.size() || items[0].estadoElaboracion == estadoObjetivo)
-        && (1 >= items.size() || items[1].estadoElaboracion == estadoObjetivo)
-        && (2 >= items.size() || items[2].estadoElaboracion == estadoObjetivo)
-        && (3 >= items.size() || items[3].estadoElaboracion == estadoObjetivo)
-        && (4 >= items.size() || items[4].estadoElaboracion == estadoObjetivo)
-        && (5 >= items.size() || items[5].estadoElaboracion == estadoObjetivo)
-        && (6 >= items.size() || items[6].estadoElaboracion == estadoObjetivo)
-        && (7 >= items.size() || items[7].estadoElaboracion == estadoObjetivo)
-        && (8 >= items.size() || items[8].estadoElaboracion == estadoObjetivo)
-        && (9 >= items.size() || items[9].estadoElaboracion == estadoObjetivo)
-        && (10 >= items.size() || items[10].estadoElaboracion == estadoObjetivo)
-        && (11 >= items.size() || items[11].estadoElaboracion == estadoObjetivo)
-        && (12 >= items.size() || items[12].estadoElaboracion == estadoObjetivo)
-        && (13 >= items.size() || items[13].estadoElaboracion == estadoObjetivo)
-        && (14 >= items.size() || items[14].estadoElaboracion == estadoObjetivo)
-        && (15 >= items.size() || items[15].estadoElaboracion == estadoObjetivo)
-        && (16 >= items.size() || items[16].estadoElaboracion == estadoObjetivo)
-        && (17 >= items.size() || items[17].estadoElaboracion == estadoObjetivo)
-        && (18 >= items.size() || items[18].estadoElaboracion == estadoObjetivo)
-        && (19 >= items.size() || items[19].estadoElaboracion == estadoObjetivo);
+        && (items.size() <= 1 || (
+          (1 >= items.size() || items[1].estadoElaboracion == estadoObjetivo)
+          && (2 >= items.size() || items[2].estadoElaboracion == estadoObjetivo)
+          && (3 >= items.size() || items[3].estadoElaboracion == estadoObjetivo)
+          && (4 >= items.size() || items[4].estadoElaboracion == estadoObjetivo)
+        ))
+        && (items.size() <= 5 || (
+          (5 >= items.size() || items[5].estadoElaboracion == estadoObjetivo)
+          && (6 >= items.size() || items[6].estadoElaboracion == estadoObjetivo)
+          && (7 >= items.size() || items[7].estadoElaboracion == estadoObjetivo)
+          && (8 >= items.size() || items[8].estadoElaboracion == estadoObjetivo)
+          && (9 >= items.size() || items[9].estadoElaboracion == estadoObjetivo)
+        ))
+        && (items.size() <= 10 || (
+          (10 >= items.size() || items[10].estadoElaboracion == estadoObjetivo)
+          && (11 >= items.size() || items[11].estadoElaboracion == estadoObjetivo)
+          && (12 >= items.size() || items[12].estadoElaboracion == estadoObjetivo)
+          && (13 >= items.size() || items[13].estadoElaboracion == estadoObjetivo)
+          && (14 >= items.size() || items[14].estadoElaboracion == estadoObjetivo)
+        ))
+        && (items.size() <= 15 || (
+          (15 >= items.size() || items[15].estadoElaboracion == estadoObjetivo)
+          && (16 >= items.size() || items[16].estadoElaboracion == estadoObjetivo)
+          && (17 >= items.size() || items[17].estadoElaboracion == estadoObjetivo)
+          && (18 >= items.size() || items[18].estadoElaboracion == estadoObjetivo)
+          && (19 >= items.size() || items[19].estadoElaboracion == estadoObjetivo)
+        ));
     }
 
     function esEstadoProduccionCoherente(items, estadoProduccion) {
@@ -272,6 +280,316 @@ service cloud.firestore {
           !todosItemsEnEstado(items, 'recibido')
           && !todosItemsEnEstado(items, 'terminado')
           && estadoProduccion == 'en_proceso'
+        );
+    }
+
+    function igualesEnIndice(oldItems, newItems, i) {
+      return i >= newItems.size() || newItems[i] == oldItems[i];
+    }
+
+    function desplazadosEnIndice(oldItems, newItems, i) {
+      return i >= newItems.size() || newItems[i] == oldItems[i + 1];
+    }
+
+    function prefijo0a4(oldItems, newItems) {
+      return igualesEnIndice(oldItems, newItems, 0)
+        && igualesEnIndice(oldItems, newItems, 1)
+        && igualesEnIndice(oldItems, newItems, 2)
+        && igualesEnIndice(oldItems, newItems, 3)
+        && igualesEnIndice(oldItems, newItems, 4);
+    }
+
+    function prefijo5a9(oldItems, newItems) {
+      return igualesEnIndice(oldItems, newItems, 5)
+        && igualesEnIndice(oldItems, newItems, 6)
+        && igualesEnIndice(oldItems, newItems, 7)
+        && igualesEnIndice(oldItems, newItems, 8)
+        && igualesEnIndice(oldItems, newItems, 9);
+    }
+
+    function prefijo10a14(oldItems, newItems) {
+      return igualesEnIndice(oldItems, newItems, 10)
+        && igualesEnIndice(oldItems, newItems, 11)
+        && igualesEnIndice(oldItems, newItems, 12)
+        && igualesEnIndice(oldItems, newItems, 13)
+        && igualesEnIndice(oldItems, newItems, 14);
+    }
+
+    function sufijo5a9(oldItems, newItems) {
+      return desplazadosEnIndice(oldItems, newItems, 5)
+        && desplazadosEnIndice(oldItems, newItems, 6)
+        && desplazadosEnIndice(oldItems, newItems, 7)
+        && desplazadosEnIndice(oldItems, newItems, 8)
+        && desplazadosEnIndice(oldItems, newItems, 9);
+    }
+
+    function sufijo10a18(oldItems, newItems) {
+      return desplazadosEnIndice(oldItems, newItems, 10)
+        && desplazadosEnIndice(oldItems, newItems, 11)
+        && desplazadosEnIndice(oldItems, newItems, 12)
+        && desplazadosEnIndice(oldItems, newItems, 13)
+        && desplazadosEnIndice(oldItems, newItems, 14)
+        && desplazadosEnIndice(oldItems, newItems, 15)
+        && desplazadosEnIndice(oldItems, newItems, 16)
+        && desplazadosEnIndice(oldItems, newItems, 17)
+        && desplazadosEnIndice(oldItems, newItems, 18);
+    }
+
+    function sufijo15a18(oldItems, newItems) {
+      return desplazadosEnIndice(oldItems, newItems, 15)
+        && desplazadosEnIndice(oldItems, newItems, 16)
+        && desplazadosEnIndice(oldItems, newItems, 17)
+        && desplazadosEnIndice(oldItems, newItems, 18);
+    }
+
+    function bloque0a4(oldItems, newItems) {
+      return (
+          desplazadosEnIndice(oldItems, newItems, 0)
+          && desplazadosEnIndice(oldItems, newItems, 1)
+          && desplazadosEnIndice(oldItems, newItems, 2)
+          && desplazadosEnIndice(oldItems, newItems, 3)
+          && desplazadosEnIndice(oldItems, newItems, 4)
+        )
+        || (
+          igualesEnIndice(oldItems, newItems, 0)
+          && desplazadosEnIndice(oldItems, newItems, 1)
+          && desplazadosEnIndice(oldItems, newItems, 2)
+          && desplazadosEnIndice(oldItems, newItems, 3)
+          && desplazadosEnIndice(oldItems, newItems, 4)
+        )
+        || (
+          igualesEnIndice(oldItems, newItems, 0)
+          && igualesEnIndice(oldItems, newItems, 1)
+          && desplazadosEnIndice(oldItems, newItems, 2)
+          && desplazadosEnIndice(oldItems, newItems, 3)
+          && desplazadosEnIndice(oldItems, newItems, 4)
+        )
+        || (
+          igualesEnIndice(oldItems, newItems, 0)
+          && igualesEnIndice(oldItems, newItems, 1)
+          && igualesEnIndice(oldItems, newItems, 2)
+          && desplazadosEnIndice(oldItems, newItems, 3)
+          && desplazadosEnIndice(oldItems, newItems, 4)
+        )
+        || (
+          igualesEnIndice(oldItems, newItems, 0)
+          && igualesEnIndice(oldItems, newItems, 1)
+          && igualesEnIndice(oldItems, newItems, 2)
+          && igualesEnIndice(oldItems, newItems, 3)
+          && desplazadosEnIndice(oldItems, newItems, 4)
+        );
+    }
+
+    function bloque5a9(oldItems, newItems) {
+      return (
+          desplazadosEnIndice(oldItems, newItems, 5)
+          && desplazadosEnIndice(oldItems, newItems, 6)
+          && desplazadosEnIndice(oldItems, newItems, 7)
+          && desplazadosEnIndice(oldItems, newItems, 8)
+          && desplazadosEnIndice(oldItems, newItems, 9)
+        )
+        || (
+          igualesEnIndice(oldItems, newItems, 5)
+          && desplazadosEnIndice(oldItems, newItems, 6)
+          && desplazadosEnIndice(oldItems, newItems, 7)
+          && desplazadosEnIndice(oldItems, newItems, 8)
+          && desplazadosEnIndice(oldItems, newItems, 9)
+        )
+        || (
+          igualesEnIndice(oldItems, newItems, 5)
+          && igualesEnIndice(oldItems, newItems, 6)
+          && desplazadosEnIndice(oldItems, newItems, 7)
+          && desplazadosEnIndice(oldItems, newItems, 8)
+          && desplazadosEnIndice(oldItems, newItems, 9)
+        )
+        || (
+          igualesEnIndice(oldItems, newItems, 5)
+          && igualesEnIndice(oldItems, newItems, 6)
+          && igualesEnIndice(oldItems, newItems, 7)
+          && desplazadosEnIndice(oldItems, newItems, 8)
+          && desplazadosEnIndice(oldItems, newItems, 9)
+        )
+        || (
+          igualesEnIndice(oldItems, newItems, 5)
+          && igualesEnIndice(oldItems, newItems, 6)
+          && igualesEnIndice(oldItems, newItems, 7)
+          && igualesEnIndice(oldItems, newItems, 8)
+          && desplazadosEnIndice(oldItems, newItems, 9)
+        );
+    }
+
+    function bloque10a14(oldItems, newItems) {
+      return (
+          desplazadosEnIndice(oldItems, newItems, 10)
+          && desplazadosEnIndice(oldItems, newItems, 11)
+          && desplazadosEnIndice(oldItems, newItems, 12)
+          && desplazadosEnIndice(oldItems, newItems, 13)
+          && desplazadosEnIndice(oldItems, newItems, 14)
+        )
+        || (
+          igualesEnIndice(oldItems, newItems, 10)
+          && desplazadosEnIndice(oldItems, newItems, 11)
+          && desplazadosEnIndice(oldItems, newItems, 12)
+          && desplazadosEnIndice(oldItems, newItems, 13)
+          && desplazadosEnIndice(oldItems, newItems, 14)
+        )
+        || (
+          igualesEnIndice(oldItems, newItems, 10)
+          && igualesEnIndice(oldItems, newItems, 11)
+          && desplazadosEnIndice(oldItems, newItems, 12)
+          && desplazadosEnIndice(oldItems, newItems, 13)
+          && desplazadosEnIndice(oldItems, newItems, 14)
+        )
+        || (
+          igualesEnIndice(oldItems, newItems, 10)
+          && igualesEnIndice(oldItems, newItems, 11)
+          && igualesEnIndice(oldItems, newItems, 12)
+          && desplazadosEnIndice(oldItems, newItems, 13)
+          && desplazadosEnIndice(oldItems, newItems, 14)
+        )
+        || (
+          igualesEnIndice(oldItems, newItems, 10)
+          && igualesEnIndice(oldItems, newItems, 11)
+          && igualesEnIndice(oldItems, newItems, 12)
+          && igualesEnIndice(oldItems, newItems, 13)
+          && desplazadosEnIndice(oldItems, newItems, 14)
+        );
+    }
+
+    function bloque15a19(oldItems, newItems) {
+      return (
+          desplazadosEnIndice(oldItems, newItems, 15)
+          && desplazadosEnIndice(oldItems, newItems, 16)
+          && desplazadosEnIndice(oldItems, newItems, 17)
+          && desplazadosEnIndice(oldItems, newItems, 18)
+        )
+        || (
+          igualesEnIndice(oldItems, newItems, 15)
+          && desplazadosEnIndice(oldItems, newItems, 16)
+          && desplazadosEnIndice(oldItems, newItems, 17)
+          && desplazadosEnIndice(oldItems, newItems, 18)
+        )
+        || (
+          igualesEnIndice(oldItems, newItems, 15)
+          && igualesEnIndice(oldItems, newItems, 16)
+          && desplazadosEnIndice(oldItems, newItems, 17)
+          && desplazadosEnIndice(oldItems, newItems, 18)
+        )
+        || (
+          igualesEnIndice(oldItems, newItems, 15)
+          && igualesEnIndice(oldItems, newItems, 16)
+          && igualesEnIndice(oldItems, newItems, 17)
+          && desplazadosEnIndice(oldItems, newItems, 18)
+        )
+        || (
+          igualesEnIndice(oldItems, newItems, 15)
+          && igualesEnIndice(oldItems, newItems, 16)
+          && igualesEnIndice(oldItems, newItems, 17)
+          && igualesEnIndice(oldItems, newItems, 18)
+        );
+    }
+
+    function esEliminacionExactaUnItemOrdenado(oldItems, newItems) {
+      return oldItems is list
+        && newItems is list
+        && oldItems.size() >= 2
+        && oldItems.size() <= 20
+        && newItems.size() == oldItems.size() - 1
+        && (
+          (
+            prefijo0a4(oldItems, newItems)
+            && (newItems.size() <= 5 || prefijo5a9(oldItems, newItems))
+            && (
+              (
+                (newItems.size() <= 10 || prefijo10a14(oldItems, newItems))
+                && (newItems.size() <= 15 || bloque15a19(oldItems, newItems))
+              )
+              || (
+                (newItems.size() <= 15 || sufijo15a18(oldItems, newItems))
+                && (newItems.size() <= 10 || bloque10a14(oldItems, newItems))
+              )
+            )
+          )
+          || (
+            (newItems.size() <= 10 || sufijo10a18(oldItems, newItems))
+            && (
+              (
+                prefijo0a4(oldItems, newItems)
+                && (newItems.size() <= 5 || bloque5a9(oldItems, newItems))
+              )
+              || (
+                (newItems.size() <= 5 || sufijo5a9(oldItems, newItems))
+                && bloque0a4(oldItems, newItems)
+              )
+            )
+          )
+        );
+    }
+
+    function sumaSubtotalItems(items) {
+      return (0 < items.size() ? items[0].precioUnitario * items[0].cantidad : 0.0)
+        + (items.size() <= 1 ? 0.0 : (
+          (1 < items.size() ? items[1].precioUnitario * items[1].cantidad : 0.0)
+          + (2 < items.size() ? items[2].precioUnitario * items[2].cantidad : 0.0)
+          + (3 < items.size() ? items[3].precioUnitario * items[3].cantidad : 0.0)
+          + (4 < items.size() ? items[4].precioUnitario * items[4].cantidad : 0.0)
+          + (items.size() <= 5 ? 0.0 : (
+            (5 < items.size() ? items[5].precioUnitario * items[5].cantidad : 0.0)
+            + (6 < items.size() ? items[6].precioUnitario * items[6].cantidad : 0.0)
+            + (7 < items.size() ? items[7].precioUnitario * items[7].cantidad : 0.0)
+            + (8 < items.size() ? items[8].precioUnitario * items[8].cantidad : 0.0)
+            + (9 < items.size() ? items[9].precioUnitario * items[9].cantidad : 0.0)
+            + (items.size() <= 10 ? 0.0 : (
+              (10 < items.size() ? items[10].precioUnitario * items[10].cantidad : 0.0)
+              + (11 < items.size() ? items[11].precioUnitario * items[11].cantidad : 0.0)
+              + (12 < items.size() ? items[12].precioUnitario * items[12].cantidad : 0.0)
+              + (13 < items.size() ? items[13].precioUnitario * items[13].cantidad : 0.0)
+              + (14 < items.size() ? items[14].precioUnitario * items[14].cantidad : 0.0)
+              + (items.size() <= 15 ? 0.0 : (
+                (15 < items.size() ? items[15].precioUnitario * items[15].cantidad : 0.0)
+                + (16 < items.size() ? items[16].precioUnitario * items[16].cantidad : 0.0)
+                + (17 < items.size() ? items[17].precioUnitario * items[17].cantidad : 0.0)
+                + (18 < items.size() ? items[18].precioUnitario * items[18].cantidad : 0.0)
+              ))
+            ))
+          ))
+        ));
+    }
+
+    function esBaseImponibleCoherente(oldB, newB, baseImponible) {
+      return math.abs(
+        newB.totalEstimado - (
+          baseImponible
+          + (baseImponible * (oldB.impuestoPorcentaje / 100.0))
+          + oldB.costoEnvio
+        )
+      ) <= 0.01;
+    }
+
+    function esImportesBorradorCoherentes(oldB, newB, subtotal) {
+      return math.abs(newB.subtotalEstimado - subtotal) <= 0.01
+        && esBaseImponibleCoherente(
+          oldB,
+          newB,
+          subtotal - (
+            oldB.descuentoMayoristaActivo
+              ? subtotal * (oldB.descuentoPorcentaje / 100.0)
+              : 0.0
+          )
+        );
+    }
+
+    function esBorradorFacturaRecalculadoValido(oldB, newB, newItems) {
+      return oldB is map
+        && esBorradorFacturaValido(newB)
+        && newB.impuestoPorcentaje == oldB.impuestoPorcentaje
+        && newB.descuentoMayoristaActivo == oldB.descuentoMayoristaActivo
+        && newB.descuentoPorcentaje == oldB.descuentoPorcentaje
+        && newB.costoEnvio == oldB.costoEnvio
+        && esImportesBorradorCoherentes(
+          oldB,
+          newB,
+          sumaSubtotalItems(newItems)
         );
     }
 
@@ -325,6 +643,38 @@ service cloud.firestore {
             && request.resource.data.fechaPrevistaEntrega >= timestamp.date(2000, 1, 1)
             && request.resource.data.fechaPrevistaEntrega < timestamp.date(2101, 1, 1)
             && request.resource.data.updatedAt == request.time
+          )
+          || (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'items',
+              'estadoProduccion',
+              'borradorFactura',
+              'keywordsBusqueda',
+              'updatedAt'
+            ])
+            && request.resource.data.diff(resource.data).affectedKeys().hasAll([
+              'items',
+              'updatedAt'
+            ])
+            && (!('facturado' in resource.data) || resource.data.facturado == false)
+            && (!('ventaId' in resource.data) || resource.data.ventaId == null)
+            && request.resource.data.updatedAt == request.time
+            && esEliminacionExactaUnItemOrdenado(
+              resource.data.items,
+              request.resource.data.items
+            )
+            && esEstadoElaboracionValido(request.resource.data.estadoProduccion)
+            && esEstadoProduccionCoherente(
+              request.resource.data.items,
+              request.resource.data.estadoProduccion
+            )
+            && esBorradorFacturaRecalculadoValido(
+              resource.data.borradorFactura,
+              request.resource.data.borradorFactura,
+              request.resource.data.items
+            )
+            && request.resource.data.keywordsBusqueda is list
+            && request.resource.data.keywordsBusqueda.size() <= 100
           )
         );
 
