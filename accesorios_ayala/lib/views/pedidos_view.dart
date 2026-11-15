@@ -74,6 +74,7 @@ class _PedidosViewState extends State<PedidosView> {
 
   _SubseccionPedidos _subseccionActiva = _SubseccionPedidos.resumen;
   List<Pedido> _pedidosCargados = [];
+  final Map<String, Pedido> _pedidosConfirmadosDuranteCarga = {};
   bool _cargandoPedidos = false;
   String? _errorCargaPedidos;
 
@@ -113,12 +114,18 @@ class _PedidosViewState extends State<PedidosView> {
     try {
       final cargados = await PedidoController.cargarPedidos();
       if (!mounted) return false;
+      final idsCargados = cargados.map((p) => p.id).toSet();
+      final pendientesNoIncluidos = _pedidosConfirmadosDuranteCarga.values
+          .where((p) => !idsCargados.contains(p.id))
+          .toList(growable: false);
+      _pedidosConfirmadosDuranteCarga.clear();
       setState(() {
-        _pedidosCargados = cargados;
+        _pedidosCargados = [...pendientesNoIncluidos, ...cargados];
         _cargandoPedidos = false;
       });
       return true;
     } on PedidoControllerException catch (e) {
+      _pedidosConfirmadosDuranteCarga.clear();
       if (!mounted) return false;
       setState(() {
         _errorCargaPedidos = e.mensaje;
@@ -126,6 +133,7 @@ class _PedidosViewState extends State<PedidosView> {
       });
       return false;
     } catch (_) {
+      _pedidosConfirmadosDuranteCarga.clear();
       if (!mounted) return false;
       setState(() {
         _errorCargaPedidos =
@@ -272,7 +280,9 @@ class _PedidosViewState extends State<PedidosView> {
       case _SubseccionPedidos.pedidos:
         return _construirSeccionPedidos(esEscritorio: esEscritorio);
       case _SubseccionPedidos.nuevoPedido:
-        return const NuevoPedidoView();
+        return NuevoPedidoView(
+          onPedidoRegistrado: _manejarPedidoRegistrado,
+        );
       case _SubseccionPedidos.reportes:
         return _construirTarjetaInformativa(
           icono: Icons.bar_chart_rounded,
@@ -402,17 +412,18 @@ class _PedidosViewState extends State<PedidosView> {
   }
 
   Widget _construirSeccionPedidos({required bool esEscritorio}) {
+    final tienePedidos = pedidos.isNotEmpty;
     final Widget contenido;
-    if (_cargandoPedidos) {
-      contenido = _construirEstadoCargando(esEscritorio: esEscritorio);
-    } else if (_errorCargaPedidos != null) {
-      contenido = _construirEstadoError(esEscritorio: esEscritorio);
-    } else if (pedidos.isEmpty) {
-      contenido = _construirEstadoVacio(esEscritorio: esEscritorio);
-    } else {
+    if (tienePedidos) {
       contenido = esEscritorio
           ? _construirTablaEscritorio()
           : _construirListaMovil();
+    } else if (_cargandoPedidos) {
+      contenido = _construirEstadoCargando(esEscritorio: esEscritorio);
+    } else if (_errorCargaPedidos != null) {
+      contenido = _construirEstadoError(esEscritorio: esEscritorio);
+    } else {
+      contenido = _construirEstadoVacio(esEscritorio: esEscritorio);
     }
 
     if (_usaListaExterna) {
@@ -422,23 +433,79 @@ class _PedidosViewState extends State<PedidosView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: OutlinedButton.icon(
-            onPressed: _cargandoPedidos ? null : _cargarPedidos,
-            icon: const Icon(Icons.refresh_rounded, size: 18),
-            label: const Text('Actualizar'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: _rojoMarca,
-              backgroundColor: Colors.white,
-              side: const BorderSide(color: _bordeSuave),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            if (tienePedidos && _cargandoPedidos) ...[
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: _rojoMarca,
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Actualizando lista...',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: _grisTexto,
+                ),
+              ),
+              const SizedBox(width: 12),
+            ],
+            OutlinedButton.icon(
+              onPressed: _cargandoPedidos ? null : _cargarPedidos,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Actualizar'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _rojoMarca,
+                backgroundColor: Colors.white,
+                side: const BorderSide(color: _bordeSuave),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
-          ),
+          ],
         ),
+        if (tienePedidos && !_cargandoPedidos && _errorCargaPedidos != null) ...[
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: _rosaSuave.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _bordeSuave),
+            ),
+            child: const Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  size: 18,
+                  color: _rojoMarca,
+                ),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'No fue posible actualizar la lista desde Firestore. Se muestran los pedidos disponibles en memoria.',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: _negroElegante,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 12),
         contenido,
       ],
@@ -816,6 +883,43 @@ class _PedidosViewState extends State<PedidosView> {
           .where((p) => p.id != pedidoId)
           .toList(growable: false);
     });
+  }
+
+  void _manejarPedidoRegistrado(Pedido pedido) {
+    if (!mounted) return;
+    if (_subseccionActiva == _SubseccionPedidos.pedidos) return;
+
+    setState(() {
+      _subseccionActiva = _SubseccionPedidos.pedidos;
+      if (!_usaListaExterna) {
+        if (_cargandoPedidos) {
+          _pedidosConfirmadosDuranteCarga[pedido.id] = pedido;
+        }
+        final indiceExistente = _pedidosCargados.indexWhere(
+          (p) => p.id == pedido.id,
+        );
+        if (indiceExistente == -1) {
+          _pedidosCargados = [pedido, ..._pedidosCargados];
+        } else {
+          _pedidosCargados = [
+            for (var i = 0; i < _pedidosCargados.length; i++)
+              if (i == indiceExistente) pedido else _pedidosCargados[i],
+          ];
+        }
+      }
+    });
+
+    if (!_usaListaExterna && !_cargandoPedidos) {
+      _cargarPedidos();
+    }
+
+    final numero = _numeroVisible(pedido);
+    final mensajeConfirmacion = pedido.numeroPedido.trim().isNotEmpty
+        ? 'Pedido $numero registrado correctamente.'
+        : 'Pedido registrado correctamente.';
+    ScaffoldMessenger.maybeOf(context)
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(mensajeConfirmacion)));
   }
 
   Future<void> _mostrarDetallePedido(Pedido pedido) async {

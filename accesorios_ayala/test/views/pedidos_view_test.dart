@@ -82,7 +82,7 @@ void main() {
         expect(find.text('Facturar pedido'), findsOneWidget);
         expect(obtenerBotonFacturar(tester).enabled, isTrue);
         expect(
-          find.textContaining('disponible en la siguiente etapa'),
+          find.textContaining('Pedido listo para facturar'),
           findsOneWidget,
         );
       },
@@ -270,7 +270,7 @@ void main() {
         expect(botonesUnItem, hasLength(1));
         expect(botonesUnItem.single.onPressed, isNull);
 
-        await tester.tap(find.text('Cerrar'));
+        await tester.tap(find.byTooltip('Cerrar'));
         await tester.pumpAndSettle();
 
         await abrirDetallePedido(

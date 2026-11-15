@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../controllers/cliente_controller.dart';
@@ -15,6 +14,7 @@ class NuevoPedidoView extends StatefulWidget {
   final ValueChanged<List<PedidoItem>>? onItemsCambiados;
   @visibleForTesting
   final Future<Pedido> Function(Pedido borrador)? onRegistrarPedido;
+  final ValueChanged<Pedido>? onPedidoRegistrado;
 
   const NuevoPedidoView({
     super.key,
@@ -22,6 +22,7 @@ class NuevoPedidoView extends StatefulWidget {
     this.productos,
     this.onItemsCambiados,
     this.onRegistrarPedido,
+    this.onPedidoRegistrado,
   });
 
   @override
@@ -794,6 +795,19 @@ class _NuevoPedidoViewState extends State<NuevoPedidoView> {
             ? 'Pedido $numero registrado correctamente.'
             : 'Pedido registrado correctamente.';
       });
+      try {
+        widget.onPedidoRegistrado?.call(pedidoRegistrado);
+      } catch (e, st) {
+        debugPrint(
+          'Error al ejecutar onPedidoRegistrado tras registrar el pedido: $e\n$st',
+        );
+        if (mounted) {
+          setState(() {
+            _mensajeErrorRegistro =
+                'El pedido se registró correctamente, pero no se pudo cambiar automáticamente a la lista de pedidos.';
+          });
+        }
+      }
     } on PedidoControllerException catch (e) {
       if (!mounted) return;
       setState(() {
