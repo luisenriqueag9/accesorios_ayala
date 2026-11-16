@@ -23,6 +23,8 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
   static const Color _bordeSuave = Color(0xFFF2E1E2);
 
   final TextEditingController _buscarCtrl = TextEditingController();
+  final ScrollController _scrollCtrl = ScrollController();
+  final GlobalKey _claveSeccionProductos = GlobalKey();
 
   List<Producto> _productos = [];
   List<Producto> _productosFiltrados = [];
@@ -56,7 +58,27 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
   @override
   void dispose() {
     _buscarCtrl.dispose();
+    _scrollCtrl.dispose();
     super.dispose();
+  }
+
+  void _irAProductos() {
+    final contextoSeccion = _claveSeccionProductos.currentContext;
+    if (contextoSeccion != null) {
+      Scrollable.ensureVisible(
+        contextoSeccion,
+        duration: const Duration(milliseconds: 450),
+        curve: Curves.easeOutCubic,
+      );
+      return;
+    }
+    if (_scrollCtrl.hasClients) {
+      _scrollCtrl.animateTo(
+        240,
+        duration: const Duration(milliseconds: 450),
+        curve: Curves.easeOutCubic,
+      );
+    }
   }
 
   Future<void> _cargarProductos() async {
@@ -1042,9 +1064,10 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
                           ),
                           Expanded(
                             child: CustomScrollView(
+                              controller: _scrollCtrl,
                               physics: const BouncingScrollPhysics(),
                               slivers: [
-                                // 2. Banner de bienvenida estilo boutique
+                                // 2. Hero Banner moderno
                                 SliverToBoxAdapter(
                                   child: Padding(
                                     padding: EdgeInsets.symmetric(
@@ -1060,6 +1083,7 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
                           // 3. Barra de título de sección y conteo de resultados
                           SliverToBoxAdapter(
                             child: Padding(
+                              key: _claveSeccionProductos,
                               padding: EdgeInsets.fromLTRB(
                                 paddingHorizontal,
                                 12,
@@ -1204,60 +1228,62 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
     BuildContext context, {
     required bool esEscritorio,
   }) {
-    return GlassContainer(
-      blur: 14,
-      opacity: 0.88,
-      borderRadius: 22,
+    return Container(
       padding: EdgeInsets.symmetric(
-        horizontal: esEscritorio ? 20 : 14,
-        vertical: 14,
+        horizontal: esEscritorio ? 22 : 14,
+        vertical: esEscritorio ? 14 : 12,
+      ),
+      decoration: BoxDecoration(
+        color: _blanco,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _bordeSuave),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         children: [
           Row(
             children: [
-              // Logo oficial con marco limpio
+              // Logo oficial con marco blanco limpio
               Container(
-                width: 56,
-                height: 56,
-                padding: const EdgeInsets.all(2),
+                width: esEscritorio ? 52 : 46,
+                height: esEscritorio ? 52 : 46,
+                padding: const EdgeInsets.all(3),
                 decoration: BoxDecoration(
                   color: _blanco,
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(color: _bordeSuave),
-                  boxShadow: [
-                    BoxShadow(
-                      color: _rojoMarca.withValues(alpha: 0.08),
-                      blurRadius: 10,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
                 ),
                 child: Image.asset(
                   'assets/logo/logo_ayala.png',
                   fit: BoxFit.contain,
                   errorBuilder: (_, __, ___) => const Icon(
-                    Icons.favorite_rounded,
-                    color: _rojoMarca,
+                    Icons.auto_awesome_rounded,
+                    color: _negroElegante,
                   ),
                 ),
               ),
-              SizedBox(width: esEscritorio ? 12 : 10),
+              SizedBox(width: esEscritorio ? 14 : 10),
 
-              // Nombre y Eslogan Oficial (en móvil el eslogan pasa debajo para evitar truncado)
+              // Marca y línea de negocio
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Accesorios Ayala',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 19,
-                        fontWeight: FontWeight.w900,
+                        fontSize: esEscritorio ? 20 : 18,
+                        fontWeight: FontWeight.w800,
                         color: _negroElegante,
-                        letterSpacing: 0.3,
+                        letterSpacing: 0.2,
                       ),
                     ),
                     if (esEscritorio) ...[
@@ -1283,7 +1309,7 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
             ],
           ),
 
-          // En móvil, el eslogan completo y el buscador ocupan todo el ancho debajo
+          // En móvil, el subtítulo y el buscador ocupan todo el ancho debajo
           if (!esEscritorio) ...[
             const SizedBox(height: 8),
             _construirEslogan(esEscritorio: false),
@@ -1306,7 +1332,7 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
             width: 6,
             height: 6,
             decoration: const BoxDecoration(
-              color: _rojoMarca,
+              color: Color(0xFFD98496),
               shape: BoxShape.circle,
             ),
           ),
@@ -1314,15 +1340,14 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
         const SizedBox(width: 6),
         Expanded(
           child: Text(
-            'Ustedes Lo Sueñan, Nosotros Lo Creamos',
+            'Accesorios, grabados láser y regalos personalizados',
             maxLines: esEscritorio ? 1 : 2,
             overflow:
                 esEscritorio ? TextOverflow.ellipsis : TextOverflow.visible,
             style: const TextStyle(
               fontSize: 12.5,
-              fontWeight: FontWeight.w600,
-              fontStyle: FontStyle.italic,
-              color: _rojoMarca,
+              fontWeight: FontWeight.w500,
+              color: _grisTexto,
               height: 1.25,
             ),
           ),
@@ -1468,54 +1493,55 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [
-            _rosaClaro,
-            Color(0xFFFFF8F8),
+            Color(0xFFFFEFF3),
+            Color(0xFFFFF7F9),
             _blanco,
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: _bordeSuave, width: 1.2),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFF3D7DF), width: 1.2),
         boxShadow: [
           BoxShadow(
-            color: _rojoMarca.withValues(alpha: 0.06),
-            blurRadius: 16,
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 18,
             offset: const Offset(0, 6),
           ),
         ],
       ),
       child: Stack(
         children: [
-          // Círculos decorativos sutiles en rosa/rojo muy tenue
+          // Acentos geométricos sutiles en rosa suave
           Positioned(
-            right: -25,
-            top: -25,
+            right: -28,
+            top: -28,
             child: Container(
-              width: 120,
-              height: 120,
+              width: 140,
+              height: 140,
               decoration: BoxDecoration(
-                color: _rojoMarca.withValues(alpha: 0.05),
+                color: const Color(0xFFE8A4B3).withValues(alpha: 0.16),
                 shape: BoxShape.circle,
               ),
             ),
           ),
           Positioned(
-            right: 50,
-            bottom: -35,
+            right: 54,
+            bottom: -40,
             child: Container(
-              width: 90,
-              height: 90,
+              width: 100,
+              height: 100,
               decoration: BoxDecoration(
-                color: _rojoMarca.withValues(alpha: 0.04),
+                color: const Color(0xFFE8A4B3).withValues(alpha: 0.10),
                 shape: BoxShape.circle,
               ),
             ),
           ),
 
           Padding(
-            padding: EdgeInsets.all(esEscritorio ? 24 : 18),
+            padding: EdgeInsets.all(esEscritorio ? 30 : 20),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Expanded(
                   child: Column(
@@ -1527,72 +1553,109 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
                           vertical: 5,
                         ),
                         decoration: BoxDecoration(
-                          color: _rojoMarca.withValues(alpha: 0.10),
+                          color: const Color(0xFFFCE7EC),
                           borderRadius: BorderRadius.circular(30),
+                          border: Border.all(
+                            color: const Color(0xFFF3D0D9),
+                          ),
                         ),
                         child: const Text(
-                          '✨ Bisutería, Regalos y Detalles Personalizados',
+                          'ACCESORIOS · GRABADOS LÁSER · REGALOS',
                           style: TextStyle(
-                            color: _rojoMarca,
+                            color: _negroElegante,
                             fontWeight: FontWeight.w700,
-                            fontSize: 11.5,
+                            fontSize: 10.5,
+                            letterSpacing: 0.8,
                           ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        'Detalles que hacen la diferencia',
+                        style: TextStyle(
+                          color: _negroElegante,
+                          fontSize: esEscritorio ? 30 : 22,
+                          fontWeight: FontWeight.w900,
+                          height: 1.15,
+                          letterSpacing: -0.3,
                         ),
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        '«Ustedes lo sueñan, nosotros lo creamos»',
-                        style: TextStyle(
-                          color: _negroElegante,
-                          fontSize: esEscritorio ? 22 : 17.5,
-                          fontWeight: FontWeight.w900,
-                          height: 1.2,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Descubre accesorios únicos, arreglos especiales y detalles hechos con dedicación para cada ocasión.',
+                        'Accesorios, grabados láser y regalos personalizados para cada ocasión',
                         style: TextStyle(
                           color: _grisTexto,
-                          fontSize: esEscritorio ? 14 : 12.5,
-                          height: 1.4,
+                          fontSize: esEscritorio ? 15 : 13.5,
+                          height: 1.45,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      ElevatedButton.icon(
+                        onPressed: _irAProductos,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _negroElegante,
+                          foregroundColor: _blanco,
+                          elevation: 0,
+                          padding: EdgeInsets.symmetric(
+                            horizontal: esEscritorio ? 22 : 18,
+                            vertical: esEscritorio ? 14 : 12,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        icon: const Icon(Icons.arrow_downward_rounded, size: 18),
+                        label: const Text(
+                          'Explorar productos',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
                 if (esEscritorio) ...[
-                  const SizedBox(width: 20),
+                  const SizedBox(width: 24),
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 14,
+                      horizontal: 20,
+                      vertical: 16,
                     ),
                     decoration: BoxDecoration(
                       color: _blanco,
                       borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: _bordeSuave),
+                      border: Border.all(color: const Color(0xFFF3D7DF)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.03),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
                     child: const Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          Icons.card_giftcard_rounded,
-                          color: _rojoMarca,
-                          size: 28,
+                          Icons.auto_awesome_outlined,
+                          color: _negroElegante,
+                          size: 26,
                         ),
-                        SizedBox(width: 10),
+                        SizedBox(width: 12),
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Detalles con Estilo',
+                              'Hecho a tu medida',
                               style: TextStyle(
                                 color: _negroElegante,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13.5,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 14,
                               ),
                             ),
+                            SizedBox(height: 2),
                             Text(
                               'Precios en Lempiras (L.)',
                               style: TextStyle(
