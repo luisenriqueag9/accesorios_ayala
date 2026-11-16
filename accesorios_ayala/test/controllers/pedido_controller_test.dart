@@ -738,6 +738,160 @@ void main() {
       },
     );
   });
+
+  group('PedidoController.cargarPedidoPorFactura', () {
+    test('encuentra el pedido por facturaNumero usando limit(1) sin escribir', () async {
+      final db = _FakeFirestore(
+        documentosPedidos: {
+          'ped-1': {
+            'numeroPedido': 'PED-0010',
+            'clienteId': 'cli-1',
+            'clienteNombre': 'Ana López',
+            'clienteTelefono': '9999-0000',
+            'clienteDireccion': 'Col. Centro',
+            'clienteDepartamento': 'Cortés',
+            'items': [
+              {
+                'itemId': 'item-1',
+                'productoId': 'prod-1',
+                'nombre': 'Pulsera Dorada',
+                'cantidad': 2,
+                'precioUnitario': 250.0,
+              },
+            ],
+            'costoEnvio': 120.0,
+            'facturado': true,
+            'facturaNumero': 'FAC-0010',
+            'ventaId': 'FAC-0010',
+          },
+        },
+      );
+
+      final pedido = await PedidoController.cargarPedidoPorFactura(
+        'FAC-0010',
+        firestore: db,
+      );
+
+      expect(pedido, isNotNull);
+      expect(pedido!.id, 'ped-1');
+      expect(pedido.numeroPedido, 'PED-0010');
+      expect(pedido.items, hasLength(1));
+      expect(db.consultasRegistradas, ['facturaNumero=FAC-0010|limit=1']);
+      expect(db.huboEscriturasOTransacciones, isFalse);
+    });
+
+    test('encuentra el pedido por ventaId cuando no coincide facturaNumero', () async {
+      final db = _FakeFirestore(
+        documentosPedidos: {
+          'ped-2': {
+            'numeroPedido': 'PED-0011',
+            'clienteId': 'cli-2',
+            'clienteNombre': 'Carlos Ruiz',
+            'items': const [],
+            'facturado': true,
+            'facturaNumero': '',
+            'ventaId': 'FAC-0011',
+          },
+        },
+      );
+
+      final pedido = await PedidoController.cargarPedidoPorFactura(
+        'FAC-0011',
+        firestore: db,
+      );
+
+      expect(pedido, isNotNull);
+      expect(pedido!.id, 'ped-2');
+      expect(pedido.numeroPedido, 'PED-0011');
+      expect(db.consultasRegistradas, [
+        'facturaNumero=FAC-0011|limit=1',
+        'ventaId=FAC-0011|limit=1',
+      ]);
+      expect(db.huboEscriturasOTransacciones, isFalse);
+    });
+
+    test('retorna null cuando no existe pedido relacionado', () async {
+      final db = _FakeFirestore(documentosPedidos: {});
+
+      final pedido = await PedidoController.cargarPedidoPorFactura(
+        'FAC-9999',
+        firestore: db,
+      );
+
+      expect(pedido, isNull);
+      expect(db.consultasRegistradas, [
+        'facturaNumero=FAC-9999|limit=1',
+        'ventaId=FAC-9999|limit=1',
+      ]);
+      expect(db.huboEscriturasOTransacciones, isFalse);
+    });
+
+    test('lanza datosInvalidos si facturaId está vacío', () async {
+      final db = _FakeFirestore(documentosPedidos: {});
+
+      for (final idInvalido in ['', '   ']) {
+        await expectLater(
+          () => PedidoController.cargarPedidoPorFactura(
+            idInvalido,
+            firestore: db,
+          ),
+          throwsA(
+            isA<PedidoControllerException>().having(
+              (e) => e.tipo,
+              'tipo',
+              TipoErrorPedido.datosInvalidos,
+            ),
+          ),
+        );
+      }
+
+      expect(db.coleccionesConsultadas, isEmpty);
+    });
+
+    test('convierte FirebaseException de permisos y conexión al consultar', () async {
+      final dbPermisos = _FakeFirestore(
+        errorEnGet: FirebaseException(
+          plugin: 'cloud_firestore',
+          code: 'permission-denied',
+        ),
+      );
+
+      await expectLater(
+        () => PedidoController.cargarPedidoPorFactura(
+          'FAC-0012',
+          firestore: dbPermisos,
+        ),
+        throwsA(
+          isA<PedidoControllerException>().having(
+            (e) => e.tipo,
+            'tipo',
+            TipoErrorPedido.permisosInsuficientes,
+          ),
+        ),
+      );
+
+      final dbConexion = _FakeFirestore(
+        errorEnGet: FirebaseException(
+          plugin: 'cloud_firestore',
+          code: 'unavailable',
+        ),
+      );
+
+      await expectLater(
+        () => PedidoController.cargarPedidoPorFactura(
+          'FAC-0012',
+          firestore: dbConexion,
+        ),
+        throwsA(
+          isA<PedidoControllerException>().having(
+            (e) => e.tipo,
+            'tipo',
+            TipoErrorPedido.errorConexion,
+          ),
+        ),
+      );
+    });
+  });
 }
 
 class _FakeFirebaseFunctions extends Fake implements FirebaseFunctions {
@@ -787,11 +941,17 @@ class _FakeHttpsCallableResult<T> extends Fake
 }
 
 class _FakeFirestore extends Fake implements FirebaseFirestore {
-  _FakeFirestore({this.documentoPedido, this.errorEnGet});
+  _FakeFirestore({
+    this.documentoPedido,
+    this.documentosPedidos = const {},
+    this.errorEnGet,
+  });
 
   final Map<String, dynamic>? documentoPedido;
+  final Map<String, Map<String, dynamic>> documentosPedidos;
   final Object? errorEnGet;
   final List<String> coleccionesConsultadas = [];
+  final List<String> consultasRegistradas = [];
   bool huboEscriturasOTransacciones = false;
 
   @override
@@ -826,6 +986,101 @@ class _FakeCollectionReference extends Fake
   DocumentReference<Map<String, dynamic>> doc([String? path]) {
     return _FakeDocumentReference(_db, path ?? '');
   }
+
+  @override
+  Query<Map<String, dynamic>> where(
+    Object field, {
+    Object? isEqualTo,
+    Object? isNotEqualTo,
+    Object? isLessThan,
+    Object? isLessThanOrEqualTo,
+    Object? isGreaterThan,
+    Object? isGreaterThanOrEqualTo,
+    Object? arrayContains,
+    Iterable<Object?>? arrayContainsAny,
+    Iterable<Object?>? whereIn,
+    Iterable<Object?>? whereNotIn,
+    bool? isNull,
+  }) {
+    return _FakeQuery(
+      _db,
+      campoFiltro: field.toString(),
+      valorIgual: isEqualTo,
+    );
+  }
+}
+
+// ignore: subtype_of_sealed_class
+class _FakeQuery extends Fake implements Query<Map<String, dynamic>> {
+  _FakeQuery(
+    this._db, {
+    required this.campoFiltro,
+    required this.valorIgual,
+    this.limite,
+  });
+
+  final _FakeFirestore _db;
+  final String campoFiltro;
+  final Object? valorIgual;
+  final int? limite;
+
+  @override
+  Query<Map<String, dynamic>> limit(int limit) {
+    return _FakeQuery(
+      _db,
+      campoFiltro: campoFiltro,
+      valorIgual: valorIgual,
+      limite: limit,
+    );
+  }
+
+  @override
+  Future<QuerySnapshot<Map<String, dynamic>>> get([GetOptions? options]) async {
+    _db.consultasRegistradas.add(
+      '$campoFiltro=$valorIgual${limite != null ? '|limit=$limite' : ''}',
+    );
+    if (_db.errorEnGet != null) {
+      throw _db.errorEnGet!;
+    }
+
+    final coincidencias = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    for (final entry in _db.documentosPedidos.entries) {
+      if (entry.value[campoFiltro] == valorIgual) {
+        coincidencias.add(_FakeQueryDocumentSnapshot(entry.key, entry.value));
+        if (limite != null && coincidencias.length >= limite!) {
+          break;
+        }
+      }
+    }
+
+    return _FakeQuerySnapshot(coincidencias);
+  }
+}
+
+// ignore: subtype_of_sealed_class
+class _FakeQuerySnapshot extends Fake
+    implements QuerySnapshot<Map<String, dynamic>> {
+  _FakeQuerySnapshot(this._docs);
+
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> _docs;
+
+  @override
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> get docs => _docs;
+}
+
+// ignore: subtype_of_sealed_class
+class _FakeQueryDocumentSnapshot extends Fake
+    implements QueryDocumentSnapshot<Map<String, dynamic>> {
+  _FakeQueryDocumentSnapshot(this._id, this._data);
+
+  final String _id;
+  final Map<String, dynamic> _data;
+
+  @override
+  String get id => _id;
+
+  @override
+  Map<String, dynamic> data() => _data;
 }
 
 // ignore: subtype_of_sealed_class

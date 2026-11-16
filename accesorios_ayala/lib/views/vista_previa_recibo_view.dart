@@ -2,22 +2,107 @@ import 'dart:ui';
 import 'package:accesorios_ayala/services/pdf_service_web.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../utils/descargar_pdf_web.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../utils/descargar_pdf_stub.dart'
+    if (dart.library.html) '../utils/descargar_pdf_web.dart';
 import '../models/venta.dart';
 import '../controllers/venta_controller.dart';
 
 import '../models/cliente.dart';
 import '../models/producto.dart';
 
+class EstadoFacturaPrevia {
+  final String impuestoTexto;
+  final String envioTexto;
+  final String descuentoTexto;
+  final bool descuentoMayoristaActivo;
+  final bool ventaGuardada;
+  final String? facturaId;
+  final DateTime? fechaFactura;
+  final Uint8List? pdfBytesEmitido;
+
+  const EstadoFacturaPrevia({
+    this.impuestoTexto = '0',
+    this.envioTexto = '120.00',
+    this.descuentoTexto = '20',
+    this.descuentoMayoristaActivo = false,
+    this.ventaGuardada = false,
+    this.facturaId,
+    this.fechaFactura,
+    this.pdfBytesEmitido,
+  });
+}
+
+typedef GeneradorPdfFactura = Future<Uint8List> Function({
+  required Cliente cliente,
+  required List<Map<String, dynamic>> seleccionados,
+  required double impuestoPorcentaje,
+  double envio,
+  bool descuentoMayoristaActivo,
+  double descuentoPorcentaje,
+  String? facturaNumero,
+  DateTime? fechaEmision,
+  double? subtotalOverride,
+  double? descuentoMontoOverride,
+  double? impuestoOverride,
+  double? totalOverride,
+});
+
 class VistaPreviaReciboView extends StatefulWidget {
   final Cliente cliente;
   final List<Map<String, dynamic>> seleccionados;
+  final bool integrado;
+  final VoidCallback? onVolver;
+  final EstadoFacturaPrevia? estadoInicial;
+  final ValueChanged<EstadoFacturaPrevia>? onEstadoCambiado;
+  final bool soloLectura;
+  final Venta? ventaHistorica;
+  final GeneradorPdfFactura? onGenerarPdf;
+  final void Function(Uint8List bytes, String nombreArchivo)? onDescargarPdf;
+  final Future<void> Function(Venta venta)? onGuardarVenta;
+  final Future<bool> Function(Uri url)? onAbrirWhatsapp;
 
   const VistaPreviaReciboView({
     super.key,
     required this.cliente,
     required this.seleccionados,
+    this.integrado = false,
+    this.onVolver,
+    this.estadoInicial,
+    this.onEstadoCambiado,
+    this.soloLectura = false,
+    this.ventaHistorica,
+    this.onGenerarPdf,
+    this.onDescargarPdf,
+    this.onGuardarVenta,
+    this.onAbrirWhatsapp,
   });
+
+  /// Normaliza teléfonos hondureños al formato requerido por `wa.me` (`504XXXXXXXX`).
+  /// Retorna `null` si el número está vacío, incompleto o es ambiguo.
+  static String? normalizarTelefonoWhatsApp(String telefono) {
+    final limpio = telefono.trim().replaceAll(RegExp(r'[\s\-\(\)]'), '');
+    if (limpio.isEmpty) return null;
+
+    if (limpio.startsWith('+')) {
+      final digitos = limpio.substring(1);
+      if (RegExp(r'^504\d{8}$').hasMatch(digitos)) {
+        return digitos;
+      }
+      return null;
+    }
+
+    if (RegExp(r'^\d{8}$').hasMatch(limpio)) {
+      return '504$limpio';
+    }
+
+    if (RegExp(r'^504\d{8}$').hasMatch(limpio)) {
+      return limpio;
+    }
+
+    return null;
+  }
 
   @override
   State<VistaPreviaReciboView> createState() => _VistaPreviaReciboViewState();
@@ -30,9 +115,9 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
   static const Color _grisTexto = Color(0xFF6E6566);
   static const Color _bordeSuave = Color(0xFFF0DDE0);
 
-  final impuestoCtrl = TextEditingController(text: "0");
-  final envioCtrl = TextEditingController(text: "120.00");
-  final descuentoCtrl = TextEditingController(text: "20");
+  late final TextEditingController impuestoCtrl;
+  late final TextEditingController envioCtrl;
+  late final TextEditingController descuentoCtrl;
 
   bool _descuentoMayoristaActivo = false;
   bool _procesandoPdf = false;
@@ -40,6 +125,84 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
   String? _facturaId;
   DateTime? _fechaFactura;
   Uint8List? _pdfBytesEmitido;
+
+  String _formatearPorcentaje(double valor) {
+    return valor == valor.roundToDouble()
+        ? valor.toInt().toString()
+        : valor.toStringAsFixed(2);
+  }
+
+  String _formatearFecha(DateTime fecha) {
+    final dia = fecha.day.toString().padLeft(2, '0');
+    final mes = fecha.month.toString().padLeft(2, '0');
+    return "$dia/$mes/${fecha.year}";
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final inicial = widget.estadoInicial;
+    final historica = widget.ventaHistorica;
+
+    _facturaId = historica?.id ?? inicial?.facturaId;
+    _fechaFactura = historica?.fecha ?? inicial?.fechaFactura;
+
+    if (widget.soloLectura &&
+        (_facturaId == null ||
+            _facturaId!.trim().isEmpty ||
+            _fechaFactura == null)) {
+      throw ArgumentError(
+        "En modo soloLectura se requiere un número de factura y una fecha de emisión válidos.",
+      );
+    }
+
+    if (historica != null) {
+      final base = historica.subtotal - historica.descuentoMonto;
+      final impPct = base > 0 ? (historica.impuesto / base) * 100 : 0.0;
+      impuestoCtrl = TextEditingController(text: _formatearPorcentaje(impPct));
+      envioCtrl = TextEditingController(
+        text: historica.envio.toStringAsFixed(2),
+      );
+      descuentoCtrl = TextEditingController(
+        text: _formatearPorcentaje(historica.descuentoPorcentaje),
+      );
+      _descuentoMayoristaActivo = historica.descuentoMayoristaActivo;
+    } else {
+      impuestoCtrl = TextEditingController(text: inicial?.impuestoTexto ?? "0");
+      envioCtrl = TextEditingController(text: inicial?.envioTexto ?? "120.00");
+      descuentoCtrl = TextEditingController(
+        text: inicial?.descuentoTexto ?? "20",
+      );
+      _descuentoMayoristaActivo = inicial?.descuentoMayoristaActivo ?? false;
+    }
+
+    _ventaGuardada = widget.soloLectura || (inicial?.ventaGuardada ?? false);
+    _pdfBytesEmitido = inicial?.pdfBytesEmitido;
+  }
+
+  @override
+  void didUpdateWidget(covariant VistaPreviaReciboView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.ventaHistorica?.id != oldWidget.ventaHistorica?.id ||
+        widget.soloLectura != oldWidget.soloLectura) {
+      _pdfBytesEmitido = null;
+    }
+  }
+
+  void _notificarEstado() {
+    widget.onEstadoCambiado?.call(
+      EstadoFacturaPrevia(
+        impuestoTexto: impuestoCtrl.text,
+        envioTexto: envioCtrl.text,
+        descuentoTexto: descuentoCtrl.text,
+        descuentoMayoristaActivo: _descuentoMayoristaActivo,
+        ventaGuardada: _ventaGuardada,
+        facturaId: _facturaId,
+        fechaFactura: _fechaFactura,
+        pdfBytesEmitido: _pdfBytesEmitido,
+      ),
+    );
+  }
 
   @override
   void dispose() {
@@ -78,20 +241,122 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
 
   @override
   Widget build(BuildContext context) {
-    final subtotal = calcularSubtotal();
-    final descuentoPorcentaje = _parsearDescuentoPorcentaje();
-    final descuentoMonto = _descuentoMayoristaActivo
-        ? subtotal * (descuentoPorcentaje / 100)
-        : 0.0;
+    final historica = widget.ventaHistorica;
+    final subtotal = historica?.subtotal ?? calcularSubtotal();
+    final descuentoPorcentaje =
+        historica?.descuentoPorcentaje ?? _parsearDescuentoPorcentaje();
+    final descuentoMonto = historica != null
+        ? historica.descuentoMonto
+        : (_descuentoMayoristaActivo
+              ? subtotal * (descuentoPorcentaje / 100)
+              : 0.0);
     final baseImponible = subtotal - descuentoMonto;
 
-    final impuestoPorcentaje =
-        double.tryParse(impuestoCtrl.text.isEmpty ? "0" : impuestoCtrl.text) ??
-        0;
+    final impuestoPorcentaje = historica != null
+        ? (baseImponible > 0 ? (historica.impuesto / baseImponible) * 100 : 0.0)
+        : (double.tryParse(impuestoCtrl.text.isEmpty ? "0" : impuestoCtrl.text) ??
+              0);
 
-    final impuesto = baseImponible * (impuestoPorcentaje / 100);
-    final costoEnvio = _parsearEnvio();
-    final total = baseImponible + impuesto + costoEnvio;
+    final impuesto =
+        historica?.impuesto ?? (baseImponible * (impuestoPorcentaje / 100));
+    final costoEnvio = historica?.envio ?? _parsearEnvio();
+    final total = historica?.total ?? (baseImponible + impuesto + costoEnvio);
+
+    final contenidoResponsive = LayoutBuilder(
+      builder: (context, constraints) {
+        final esEscritorio = constraints.maxWidth >= 760;
+
+        final seccionCliente = _construirPanelCristal(
+          child: _construirInfoCliente(),
+        );
+
+        final seccionProductos = _construirPanelCristal(
+          child: _construirListaProductos(),
+        );
+
+        final seccionResumen = _construirPanelCristal(
+          child: _construirResumenFinanciero(
+            subtotal: subtotal,
+            descuentoPorcentaje: descuentoPorcentaje,
+            descuentoMonto: descuentoMonto,
+            impuesto: impuesto,
+            costoEnvio: costoEnvio,
+            total: total,
+          ),
+        );
+
+        final seccionBotonPdf = _construirBotonDescargar(
+          context: context,
+          subtotal: subtotal,
+          descuentoPorcentaje: descuentoPorcentaje,
+          descuentoMonto: descuentoMonto,
+          impuestoPorcentaje: impuestoPorcentaje,
+          impuesto: impuesto,
+          costoEnvio: costoEnvio,
+          total: total,
+        );
+
+        if (esEscritorio) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 3,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    seccionCliente,
+                    const SizedBox(height: 16),
+                    seccionProductos,
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                flex: 2,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    seccionResumen,
+                    const SizedBox(height: 16),
+                    seccionBotonPdf,
+                  ],
+                ),
+              ),
+            ],
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            seccionCliente,
+            const SizedBox(height: 16),
+            seccionProductos,
+            const SizedBox(height: 16),
+            seccionResumen,
+            const SizedBox(height: 16),
+            seccionBotonPdf,
+          ],
+        );
+      },
+    );
+
+    if (widget.integrado) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _construirEncabezadoIntegrado(),
+          const SizedBox(height: 16),
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 920),
+              child: contenidoResponsive,
+            ),
+          ),
+        ],
+      );
+    }
 
     return Scaffold(
       backgroundColor: _rosaSuave,
@@ -102,7 +367,7 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
         iconTheme: const IconThemeData(color: _rojoMarca),
         shape: const Border(bottom: BorderSide(color: _bordeSuave, width: 1)),
         title: const Text(
-          "Vista previa del recibo",
+          "Vista previa de factura",
           style: TextStyle(
             color: _rojoMarca,
             fontSize: 19,
@@ -120,91 +385,46 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 920),
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final esEscritorio = constraints.maxWidth >= 760;
-
-                      final seccionCliente = _construirPanelCristal(
-                        child: _construirInfoCliente(),
-                      );
-
-                      final seccionProductos = _construirPanelCristal(
-                        child: _construirListaProductos(),
-                      );
-
-                      final seccionResumen = _construirPanelCristal(
-                        child: _construirResumenFinanciero(
-                          subtotal: subtotal,
-                          descuentoPorcentaje: descuentoPorcentaje,
-                          descuentoMonto: descuentoMonto,
-                          impuesto: impuesto,
-                          costoEnvio: costoEnvio,
-                          total: total,
-                        ),
-                      );
-
-                      final seccionBotonPdf = _construirBotonDescargar(
-                        context: context,
-                        subtotal: subtotal,
-                        descuentoPorcentaje: descuentoPorcentaje,
-                        descuentoMonto: descuentoMonto,
-                        impuestoPorcentaje: impuestoPorcentaje,
-                        impuesto: impuesto,
-                        costoEnvio: costoEnvio,
-                        total: total,
-                      );
-
-                      if (esEscritorio) {
-                        return Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              flex: 3,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  seccionCliente,
-                                  const SizedBox(height: 16),
-                                  seccionProductos,
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              flex: 2,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  seccionResumen,
-                                  const SizedBox(height: 16),
-                                  seccionBotonPdf,
-                                ],
-                              ),
-                            ),
-                          ],
-                        );
-                      }
-
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          seccionCliente,
-                          const SizedBox(height: 16),
-                          seccionProductos,
-                          const SizedBox(height: 16),
-                          seccionResumen,
-                          const SizedBox(height: 16),
-                          seccionBotonPdf,
-                        ],
-                      );
-                    },
-                  ),
+                  child: contenidoResponsive,
                 ),
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _construirEncabezadoIntegrado() {
+    return Wrap(
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        const Text(
+          "Vista previa de factura",
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+            color: _negroElegante,
+          ),
+        ),
+        OutlinedButton.icon(
+          onPressed: () => widget.onVolver?.call(),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: _grisTexto,
+            backgroundColor: Colors.white.withValues(alpha: 0.75),
+            side: const BorderSide(color: _bordeSuave),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          icon: const Icon(Icons.arrow_back_rounded, size: 18),
+          label: const Text('Volver a Productos'),
+        ),
+      ],
     );
   }
 
@@ -332,10 +552,39 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
   }
 
   Widget _construirInfoCliente() {
+    final mostrarDatosFactura =
+        (widget.soloLectura || widget.ventaHistorica != null) &&
+        _facturaId != null &&
+        _fechaFactura != null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _construirTituloSeccion(Icons.person_outline_rounded, "Cliente"),
+        _construirTituloSeccion(
+          Icons.person_outline_rounded,
+          "Cliente",
+          trailing: widget.soloLectura
+              ? Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _rosaSuave,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: _bordeSuave),
+                  ),
+                  child: const Text(
+                    "Solo lectura",
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: _rojoMarca,
+                    ),
+                  ),
+                )
+              : null,
+        ),
         const SizedBox(height: 12),
         Container(
           width: double.infinity,
@@ -348,6 +597,33 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (mostrarDatosFactura) ...[
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 6,
+                  children: [
+                    Text(
+                      "Factura #$_facturaId",
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w800,
+                        color: _rojoMarca,
+                      ),
+                    ),
+                    Text(
+                      "Fecha de emisión: ${_formatearFecha(_fechaFactura!)}",
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w600,
+                        color: _grisTexto,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                const Divider(height: 1, color: _bordeSuave),
+                const SizedBox(height: 10),
+              ],
               Text(
                 widget.cliente.nombre,
                 style: const TextStyle(
@@ -504,7 +780,7 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
       width: width,
       child: TextField(
         controller: controller,
-        enabled: !_ventaGuardada && !_procesandoPdf,
+        enabled: !widget.soloLectura && !_ventaGuardada && !_procesandoPdf,
         keyboardType: keyboardType,
         inputFormatters: inputFormatters,
         textAlign: TextAlign.right,
@@ -531,7 +807,10 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
           ),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         ),
-        onChanged: (_) => setState(() {}),
+        onChanged: (_) {
+          setState(() {});
+          _notificarEstado();
+        },
       ),
     );
   }
@@ -573,12 +852,13 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
                 }
                 return null;
               }),
-              onChanged: (_ventaGuardada || _procesandoPdf)
+              onChanged: (widget.soloLectura || _ventaGuardada || _procesandoPdf)
                   ? null
                   : (valor) {
                       setState(() {
                         _descuentoMayoristaActivo = valor;
                       });
+                      _notificarEstado();
                     },
             ),
           ],
@@ -588,14 +868,17 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                "Descuento mayorista (%):",
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: _grisTexto,
+              const Expanded(
+                child: Text(
+                  "Descuento mayorista (%):",
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: _grisTexto,
+                  ),
                 ),
               ),
+              const SizedBox(width: 8),
               _construirCampoNumerico(
                 controller: descuentoCtrl,
                 keyboardType: const TextInputType.numberWithOptions(
@@ -621,14 +904,17 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
-              "ISV (%):",
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: _grisTexto,
+            const Expanded(
+              child: Text(
+                "ISV (%):",
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: _grisTexto,
+                ),
               ),
             ),
+            const SizedBox(width: 8),
             _construirCampoNumerico(
               controller: impuestoCtrl,
               keyboardType: TextInputType.number,
@@ -642,14 +928,17 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
-              "Costo de envío (L.):",
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: _grisTexto,
+            const Expanded(
+              child: Text(
+                "Costo de envío (L.):",
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: _grisTexto,
+                ),
               ),
             ),
+            const SizedBox(width: 8),
             _construirCampoNumerico(
               controller: envioCtrl,
               keyboardType: const TextInputType.numberWithOptions(
@@ -701,6 +990,133 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
     );
   }
 
+  Future<Uint8List> _obtenerOPrepararPdfBytes({
+    required double descuentoPorcentaje,
+    required double impuestoPorcentaje,
+    required double costoEnvio,
+  }) async {
+    if (_pdfBytesEmitido != null) {
+      return _pdfBytesEmitido!;
+    }
+
+    final historica = widget.ventaHistorica;
+    final generadorPdf = widget.onGenerarPdf ?? PdfWebService.generarReciboPro;
+    return generadorPdf(
+      cliente: widget.cliente,
+      seleccionados: widget.seleccionados,
+      impuestoPorcentaje: impuestoPorcentaje,
+      envio: costoEnvio,
+      descuentoMayoristaActivo: _descuentoMayoristaActivo,
+      descuentoPorcentaje: descuentoPorcentaje,
+      facturaNumero: _facturaId,
+      fechaEmision: widget.soloLectura
+          ? _fechaFactura?.toLocal()
+          : _fechaFactura,
+      subtotalOverride: historica?.subtotal,
+      descuentoMontoOverride: historica?.descuentoMonto,
+      impuestoOverride: historica?.impuesto,
+      totalOverride: historica?.total,
+    );
+  }
+
+  Future<void> _compartirPorWhatsapp({
+    required BuildContext context,
+    required double descuentoPorcentaje,
+    required double impuestoPorcentaje,
+    required double costoEnvio,
+    required double total,
+  }) async {
+    if (_procesandoPdf) return;
+
+    final telefonoWa = VistaPreviaReciboView.normalizarTelefonoWhatsApp(
+      widget.cliente.telefono,
+    );
+    if (telefonoWa == null) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'El cliente no tiene un número de teléfono válido para WhatsApp (+504).',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    setState(() {
+      _procesandoPdf = true;
+    });
+
+    try {
+      final bytes = await _obtenerOPrepararPdfBytes(
+        descuentoPorcentaje: descuentoPorcentaje,
+        impuestoPorcentaje: impuestoPorcentaje,
+        costoEnvio: costoEnvio,
+      );
+      _pdfBytesEmitido = bytes;
+
+      final nombreArchivo = 'Factura_${_facturaId!}.pdf';
+      final descargar = widget.onDescargarPdf ?? descargarPdfWeb;
+      descargar(bytes, nombreArchivo);
+
+      final mensaje =
+          'Hola, le compartimos la información de su factura $_facturaId '
+          'de Accesorios Ayala, por un total de L. ${total.toStringAsFixed(2)}. '
+          'Enviaremos el documento PDF a continuación.';
+
+      final url = Uri.https('wa.me', '/$telefonoWa', {'text': mensaje});
+      final abrir =
+          widget.onAbrirWhatsapp ??
+          (uri) => launchUrl(uri, mode: LaunchMode.externalApplication);
+
+      final abierto = await abrir(url);
+      if (!abierto) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'No se pudo abrir WhatsApp. Verifica que esté disponible en tu navegador o dispositivo.',
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Se descargó $nombreArchivo y se abrió WhatsApp. Adjunta el PDF descargado y confirma el envío manualmente.',
+            ),
+          ),
+        );
+      }
+    } catch (e, s) {
+      debugPrint("❌ ERROR al compartir por WhatsApp");
+      debugPrint(e.toString());
+      debugPrint(s.toString());
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Error al preparar la factura para WhatsApp"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _procesandoPdf = false;
+        });
+      }
+    }
+  }
+
   Widget _construirBotonDescargar({
     required BuildContext context,
     required double subtotal,
@@ -727,24 +1143,20 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
                     try {
                       debugPrint("👉 Iniciando generación de PDF");
 
-                      _facturaId ??= DateTime.now().millisecondsSinceEpoch
-                          .toString();
-                      _fechaFactura ??= DateTime.now();
+                      if (!widget.soloLectura) {
+                        _facturaId ??= DateTime.now().millisecondsSinceEpoch
+                            .toString();
+                        _fechaFactura ??= DateTime.now();
+                        _notificarEstado();
+                      }
 
-                      final bytes =
-                          _pdfBytesEmitido ??
-                          await PdfWebService.generarReciboPro(
-                            cliente: widget.cliente,
-                            seleccionados: widget.seleccionados,
-                            impuestoPorcentaje: impuestoPorcentaje,
-                            envio: costoEnvio,
-                            descuentoMayoristaActivo: _descuentoMayoristaActivo,
-                            descuentoPorcentaje: descuentoPorcentaje,
-                            facturaNumero: _facturaId,
-                            fechaEmision: _fechaFactura,
-                          );
+                      final bytes = await _obtenerOPrepararPdfBytes(
+                        descuentoPorcentaje: descuentoPorcentaje,
+                        impuestoPorcentaje: impuestoPorcentaje,
+                        costoEnvio: costoEnvio,
+                      );
 
-                      if (!_ventaGuardada) {
+                      if (!widget.soloLectura && !_ventaGuardada) {
                         final venta = Venta(
                           id: _facturaId!,
                           clienteId: widget.cliente.id,
@@ -759,7 +1171,10 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
                           descuentoMonto: descuentoMonto,
                         );
 
-                        await VentaController.guardarVenta(venta);
+                        final guardarVenta =
+                            widget.onGuardarVenta ??
+                            VentaController.guardarVenta;
+                        await guardarVenta(venta);
 
                         if (mounted) {
                           setState(() {
@@ -770,16 +1185,20 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
                           _ventaGuardada = true;
                           _pdfBytesEmitido = bytes;
                         }
+                        _notificarEstado();
+                      } else if (widget.soloLectura) {
+                        _pdfBytesEmitido = bytes;
                       }
 
                       debugPrint(
                         "✅ PDF generado correctamente (${bytes.length} bytes)",
                       );
 
-                      descargarPdfWeb(
-                        bytes,
-                        'Recibo_AccesoriosAyala_${_facturaId!}.pdf',
-                      );
+                      final nombreArchivo = widget.soloLectura
+                          ? 'Factura_${_facturaId!}.pdf'
+                          : 'Recibo_AccesoriosAyala_${_facturaId!}.pdf';
+                      final descargar = widget.onDescargarPdf ?? descargarPdfWeb;
+                      descargar(bytes, nombreArchivo);
                     } catch (e, s) {
                       debugPrint("❌ ERROR al descargar PDF");
                       debugPrint(e.toString());
@@ -825,13 +1244,48 @@ class _VistaPreviaReciboViewState extends State<VistaPreviaReciboView> {
             label: Text(
               _procesandoPdf
                   ? "Procesando..."
-                  : (_ventaGuardada
+                  : ((_ventaGuardada && !widget.soloLectura)
                         ? "Volver a descargar PDF"
                         : "Descargar PDF"),
               style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
             ),
           ),
-          if (_ventaGuardada) ...[
+          if (widget.soloLectura) ...[
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: _procesandoPdf
+                  ? null
+                  : () => _compartirPorWhatsapp(
+                      context: context,
+                      descuentoPorcentaje: descuentoPorcentaje,
+                      impuestoPorcentaje: impuestoPorcentaje,
+                      costoEnvio: costoEnvio,
+                      total: total,
+                    ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF15803D),
+                side: const BorderSide(color: Color(0xFF86EFAC)),
+                backgroundColor: const Color(0xFFF0FDF4),
+                minimumSize: const Size(double.infinity, 48),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              icon: const FaIcon(FontAwesomeIcons.whatsapp, size: 18),
+              label: const Text(
+                "Compartir por WhatsApp",
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5),
+              ),
+            ),
+          ],
+          if (widget.soloLectura && _fechaFactura != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              "Factura histórica #$_facturaId (${_formatearFecha(_fechaFactura!.toLocal())}). Descarga disponible con los importes originales, sin modificar registros.",
+              style: const TextStyle(fontSize: 12.5, color: _grisTexto),
+              textAlign: TextAlign.center,
+            ),
+          ] else if (_ventaGuardada) ...[
             const SizedBox(height: 10),
             Text(
               "Venta registrada (Factura #$_facturaId). Puedes volver a descargar el PDF sin duplicar el registro.",

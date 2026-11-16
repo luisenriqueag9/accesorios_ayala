@@ -3,9 +3,12 @@ import 'package:flutter/material.dart';
 
 import '../controllers/pedido_controller.dart';
 import '../controllers/venta_controller.dart';
+import '../models/cliente.dart';
 import '../models/pedido.dart';
+import '../models/producto.dart';
 import '../models/venta.dart';
 import 'nuevo_pedido_view.dart';
+import 'vista_previa_recibo_view.dart';
 
 enum _SubseccionPedidos {
   resumen,
@@ -32,12 +35,14 @@ class PedidosView extends StatefulWidget {
   final List<Pedido>? pedidos;
   final List<Venta>? facturas;
   final Future<List<Venta>> Function()? onCargarFacturas;
+  final Future<Pedido?> Function(String facturaId)? onBuscarPedidoPorFactura;
 
   const PedidosView({
     super.key,
     this.pedidos,
     this.facturas,
     this.onCargarFacturas,
+    this.onBuscarPedidoPorFactura,
   });
 
   @override
@@ -95,6 +100,7 @@ class _PedidosViewState extends State<PedidosView> {
   bool _cargandoFacturas = false;
   bool _facturasInicializadas = false;
   String? _errorCargaFacturas;
+  String? _facturaAbriendoId;
 
   bool get _usaListaExterna => widget.pedidos != null;
   bool get _usaFacturasExternas => widget.facturas != null;
@@ -221,14 +227,109 @@ class _PedidosViewState extends State<PedidosView> {
     }
   }
 
-  String _pedidoRelacionadoVisible(Venta factura) {
+  Pedido? _buscarPedidoEnMemoria(Venta factura) {
     for (final pedido in pedidos) {
       if (pedido.facturaNumero == factura.id || pedido.ventaId == factura.id) {
-        final numero = pedido.numeroPedido.trim();
-        return numero.isNotEmpty ? numero : '—';
+        return pedido;
       }
     }
+    return null;
+  }
+
+  String _pedidoRelacionadoVisible(Venta factura) {
+    final pedido = _buscarPedidoEnMemoria(factura);
+    if (pedido != null) {
+      final numero = pedido.numeroPedido.trim();
+      return numero.isNotEmpty ? numero : '—';
+    }
     return '—';
+  }
+
+  void _mostrarMensajeFactura(String mensaje) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(mensaje),
+        backgroundColor: _rojoMarca,
+      ),
+    );
+  }
+
+  Future<void> _abrirFacturaHistorica(Venta factura) async {
+    if (_facturaAbriendoId != null) return;
+
+    var pedido = _buscarPedidoEnMemoria(factura);
+
+    if (pedido == null) {
+      setState(() {
+        _facturaAbriendoId = factura.id;
+      });
+
+      try {
+        final buscador =
+            widget.onBuscarPedidoPorFactura ??
+            PedidoController.cargarPedidoPorFactura;
+        pedido = await buscador(factura.id);
+      } on PedidoControllerException catch (e) {
+        _mostrarMensajeFactura(e.mensaje);
+        return;
+      } catch (_) {
+        _mostrarMensajeFactura(
+          'No se pudo consultar el pedido relacionado a la factura ${factura.id}.',
+        );
+        return;
+      } finally {
+        if (mounted) {
+          setState(() {
+            _facturaAbriendoId = null;
+          });
+        }
+      }
+    }
+
+    if (pedido == null) {
+      _mostrarMensajeFactura(
+        'No se encontró el pedido relacionado a la factura ${factura.id}.',
+      );
+      return;
+    }
+
+    final cliente = Cliente(
+      id: pedido.clienteId.isNotEmpty ? pedido.clienteId : factura.clienteId,
+      nombre: pedido.clienteNombre.isNotEmpty
+          ? pedido.clienteNombre
+          : factura.clienteNombre,
+      telefono: pedido.clienteTelefono,
+      direccion: pedido.clienteDireccion,
+      departamento: pedido.clienteDepartamento,
+    );
+
+    final seleccionados = pedido.items
+        .map(
+          (item) => <String, dynamic>{
+            'producto': Producto(
+              id: item.productoId.isNotEmpty ? item.productoId : item.itemId,
+              nombre: item.nombre,
+              descripcion: item.notaPersonalizacion,
+              precio: item.precioUnitario,
+              imageUrl: item.imageUrl,
+            ),
+            'cantidad': item.cantidad,
+          },
+        )
+        .toList();
+
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => VistaPreviaReciboView(
+          cliente: cliente,
+          seleccionados: seleccionados,
+          soloLectura: true,
+          ventaHistorica: factura,
+        ),
+      ),
+    );
   }
 
   String _formatearFecha(DateTime? fecha) {
@@ -870,6 +971,10 @@ class _PedidosViewState extends State<PedidosView> {
                   flex: 2,
                   child: _EncabezadoColumna('Total', alineacionDerecha: true),
                 ),
+                Expanded(
+                  flex: 2,
+                  child: _EncabezadoColumna('Acción', alineacionDerecha: true),
+                ),
               ],
             ),
           ),
@@ -959,7 +1064,44 @@ class _PedidosViewState extends State<PedidosView> {
               ),
             ),
           ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 2,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: _construirBotonVerFactura(factura),
+            ),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _construirBotonVerFactura(Venta factura) {
+    final cargandoEsta = _facturaAbriendoId == factura.id;
+    return OutlinedButton.icon(
+      onPressed: _facturaAbriendoId != null
+          ? null
+          : () => _abrirFacturaHistorica(factura),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: _rojoMarca,
+        side: const BorderSide(color: _bordeSuave),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+      icon: cargandoEsta
+          ? const SizedBox(
+              width: 15,
+              height: 15,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: _rojoMarca,
+              ),
+            )
+          : const Icon(Icons.visibility_outlined, size: 17),
+      label: Text(
+        cargandoEsta ? 'Abriendo...' : 'Ver factura',
+        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
       ),
     );
   }
@@ -1059,6 +1201,11 @@ class _PedidosViewState extends State<PedidosView> {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: _construirBotonVerFactura(factura),
           ),
         ],
       ),
@@ -1225,6 +1372,10 @@ class _PedidosViewState extends State<PedidosView> {
                 Expanded(
                   flex: 2,
                   child: _EncabezadoColumna('Total', alineacionDerecha: true),
+                ),
+                Expanded(
+                  flex: 2,
+                  child: _EncabezadoColumna('Acción', alineacionDerecha: true),
                 ),
               ],
             ),

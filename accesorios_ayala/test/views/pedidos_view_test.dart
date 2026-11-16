@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:accesorios_ayala/models/pedido.dart';
 import 'package:accesorios_ayala/models/venta.dart';
 import 'package:accesorios_ayala/views/pedidos_view.dart';
+import 'package:accesorios_ayala/views/vista_previa_recibo_view.dart';
 
 void main() {
   Pedido crearPedido({
@@ -391,6 +392,7 @@ void main() {
       List<Pedido>? pedidos,
       List<Venta>? facturas,
       Future<List<Venta>> Function()? onCargarFacturas,
+      Future<Pedido?> Function(String facturaId)? onBuscarPedidoPorFactura,
     }) async {
       tester.view.physicalSize = tamano;
       tester.view.devicePixelRatio = 1.0;
@@ -404,6 +406,7 @@ void main() {
                 pedidos: pedidos ?? const [],
                 facturas: facturas,
                 onCargarFacturas: onCargarFacturas,
+                onBuscarPedidoPorFactura: onBuscarPedidoPorFactura,
               ),
             ),
           ),
@@ -684,6 +687,234 @@ void main() {
           find.textContaining('Se muestran las facturas disponibles en memoria'),
           findsOneWidget,
         );
+      },
+    );
+
+    testWidgets('muestra el botón Ver factura con icono de ojo en escritorio', (
+      tester,
+    ) async {
+      await montarVistaFacturas(
+        tester,
+        tamano: const Size(1280, 900),
+        facturas: [
+          crearFactura(
+            id: 'FAC-0020',
+            clienteNombre: 'Ana López',
+            fecha: DateTime(2026, 11, 14, 10, 0),
+            total: 500.0,
+          ),
+        ],
+      );
+
+      await tester.tap(find.text('Facturas'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ver factura'), findsOneWidget);
+      expect(find.byIcon(Icons.visibility_outlined), findsOneWidget);
+    });
+
+    testWidgets('muestra el botón Ver factura con icono de ojo en móvil', (
+      tester,
+    ) async {
+      await montarVistaFacturas(
+        tester,
+        tamano: const Size(390, 844),
+        facturas: [
+          crearFactura(
+            id: 'FAC-0021',
+            clienteNombre: 'Sofía Martínez',
+            fecha: DateTime(2026, 11, 14, 10, 0),
+            total: 650.0,
+          ),
+        ],
+      );
+
+      final pestanaFacturas = find.text('Facturas');
+      await tester.ensureVisible(pestanaFacturas);
+      await tester.pumpAndSettle();
+      await tester.tap(pestanaFacturas);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ver factura'), findsOneWidget);
+      expect(find.byIcon(Icons.visibility_outlined), findsOneWidget);
+    });
+
+    testWidgets(
+      'navega a VistaPreviaReciboView en modo solo lectura usando el pedido en memoria',
+      (tester) async {
+        var respaldoInvocado = false;
+        final pedidoRelacionado = crearPedido(
+          facturado: true,
+          facturaNumero: 'FAC-0022',
+          ventaId: 'FAC-0022',
+        );
+        final factura = Venta(
+          id: 'FAC-0022',
+          clienteId: 'cli-1',
+          clienteNombre: 'Ana López',
+          fecha: DateTime(2026, 11, 14, 10, 0),
+          subtotal: 320.0,
+          impuesto: 48.0,
+          total: 488.0,
+          envio: 120.0,
+        );
+
+        await montarVistaFacturas(
+          tester,
+          tamano: const Size(1440, 900),
+          pedidos: [pedidoRelacionado],
+          facturas: [factura],
+          onBuscarPedidoPorFactura: (_) async {
+            respaldoInvocado = true;
+            return null;
+          },
+        );
+
+        await tester.tap(find.text('Facturas'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Ver factura'));
+        await tester.pumpAndSettle();
+
+        expect(respaldoInvocado, isFalse);
+        expect(find.byType(VistaPreviaReciboView), findsOneWidget);
+        expect(find.text('Solo lectura'), findsOneWidget);
+        expect(find.text('Factura #FAC-0022'), findsOneWidget);
+        expect(find.text('Fecha de emisión: 14/11/2026'), findsOneWidget);
+        expect(find.text('Pulsera Dorada'), findsOneWidget);
+        expect(find.text('Collar Perla'), findsOneWidget);
+        expect(find.text('Lps 488.00'), findsOneWidget);
+
+        final botonPdf = tester.widget<ElevatedButton>(
+          find.ancestor(
+            of: find.text('Descargar PDF'),
+            matching: find.byWidgetPredicate((w) => w is ElevatedButton),
+          ),
+        );
+        expect(botonPdf.onPressed, isNotNull);
+      },
+    );
+
+    testWidgets(
+      'usa la consulta de respaldo cuando el pedido no está en memoria y navega en solo lectura',
+      (tester) async {
+        final consultas = <String>[];
+        final pedidoRespaldo = crearPedido(
+          facturado: true,
+          facturaNumero: 'FAC-0023',
+          ventaId: 'FAC-0023',
+        );
+        final factura = crearFactura(
+          id: 'FAC-0023',
+          clienteNombre: 'Ana López',
+          fecha: DateTime(2026, 11, 15, 11, 0),
+          total: 440.0,
+        );
+
+        await montarVistaFacturas(
+          tester,
+          tamano: const Size(1440, 900),
+          pedidos: const [],
+          facturas: [factura],
+          onBuscarPedidoPorFactura: (facturaId) async {
+            consultas.add(facturaId);
+            return pedidoRespaldo;
+          },
+        );
+
+        await tester.tap(find.text('Facturas'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Ver factura'));
+        await tester.pumpAndSettle();
+
+        expect(consultas, ['FAC-0023']);
+        expect(find.byType(VistaPreviaReciboView), findsOneWidget);
+        expect(find.text('Solo lectura'), findsOneWidget);
+        expect(find.text('Factura #FAC-0023'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'muestra un mensaje claro y no navega si no se encuentra el pedido relacionado',
+      (tester) async {
+        await montarVistaFacturas(
+          tester,
+          tamano: const Size(1440, 900),
+          pedidos: const [],
+          facturas: [
+            crearFactura(
+              id: 'FAC-0024',
+              clienteNombre: 'Cliente Sin Pedido',
+              fecha: DateTime(2026, 11, 15, 12, 0),
+              total: 300.0,
+            ),
+          ],
+          onBuscarPedidoPorFactura: (_) async => null,
+        );
+
+        await tester.tap(find.text('Facturas'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Ver factura'));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(VistaPreviaReciboView), findsNothing);
+        expect(
+          find.text('No se encontró el pedido relacionado a la factura FAC-0024.'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'evita aperturas duplicadas mientras se consulta el pedido de respaldo',
+      (tester) async {
+        final completer = Completer<Pedido?>();
+        var llamadas = 0;
+
+        await montarVistaFacturas(
+          tester,
+          tamano: const Size(1440, 900),
+          pedidos: const [],
+          facturas: [
+            crearFactura(
+              id: 'FAC-0025',
+              clienteNombre: 'Ana López',
+              fecha: DateTime(2026, 11, 15, 13, 0),
+              total: 520.0,
+            ),
+          ],
+          onBuscarPedidoPorFactura: (_) {
+            llamadas++;
+            return completer.future;
+          },
+        );
+
+        await tester.tap(find.text('Facturas'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Ver factura'));
+        await tester.pump();
+
+        expect(find.text('Abriendo...'), findsOneWidget);
+
+        await tester.tap(find.text('Abriendo...'), warnIfMissed: false);
+        await tester.pump();
+
+        expect(llamadas, 1);
+
+        completer.complete(
+          crearPedido(
+            facturado: true,
+            facturaNumero: 'FAC-0025',
+            ventaId: 'FAC-0025',
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(VistaPreviaReciboView), findsOneWidget);
+        expect(find.text('Solo lectura'), findsOneWidget);
       },
     );
   });

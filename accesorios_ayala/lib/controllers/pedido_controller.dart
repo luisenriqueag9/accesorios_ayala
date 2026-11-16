@@ -391,6 +391,58 @@ class PedidoController {
     }
   }
 
+  /// Recupera en solo lectura el pedido asociado a [facturaId], buscando primero
+  /// por `facturaNumero` y, si no existe coincidencia, por `ventaId`.
+  static Future<Pedido?> cargarPedidoPorFactura(
+    String facturaId, {
+    FirebaseFirestore? firestore,
+  }) async {
+    final idLimpio = facturaId.trim();
+    if (idLimpio.isEmpty) {
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.datosInvalidos,
+        mensaje: 'El identificador de la factura no puede estar vacío.',
+      );
+    }
+
+    final db = firestore ?? FirebaseFirestore.instance;
+
+    try {
+      final porFacturaNumero = await db
+          .collection(collection)
+          .where('facturaNumero', isEqualTo: idLimpio)
+          .limit(1)
+          .get();
+
+      if (porFacturaNumero.docs.isNotEmpty) {
+        final doc = porFacturaNumero.docs.first;
+        return Pedido.fromMap(doc.data(), id: doc.id);
+      }
+
+      final porVentaId = await db
+          .collection(collection)
+          .where('ventaId', isEqualTo: idLimpio)
+          .limit(1)
+          .get();
+
+      if (porVentaId.docs.isNotEmpty) {
+        final doc = porVentaId.docs.first;
+        return Pedido.fromMap(doc.data(), id: doc.id);
+      }
+
+      return null;
+    } on PedidoControllerException {
+      rethrow;
+    } on FirebaseException catch (e) {
+      throw _mapearFirebaseException(e, esLectura: true);
+    } catch (e) {
+      throw PedidoControllerException(
+        tipo: TipoErrorPedido.errorTransaccion,
+        mensaje: 'No se pudo consultar el pedido por factura en Firestore: $e',
+      );
+    }
+  }
+
   /// Actualiza en una sola transacción de Firestore los estados de elaboración
   /// de los accesorios indicados en [estadosPorItemId], verificando control de
   /// concurrencia optimista mediante [updatedAtEsperado].
