@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../controllers/producto_controller.dart';
 import '../models/producto.dart';
-import '../utils/widgets/glass_container.dart';
 
 class CatalogoPublicoView extends StatefulWidget {
   const CatalogoPublicoView({super.key});
@@ -14,7 +13,6 @@ class CatalogoPublicoView extends StatefulWidget {
 class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
   // Paleta de identidad visual — Boutique Accesorios Ayala
   static const Color _rojoMarca = Color(0xFFD9232E);
-  static const Color _rojoSuave = Color(0xFFB81B24);
   static const Color _blanco = Color(0xFFFFFFFF);
   static const Color _rosaClaro = Color(0xFFFFF1F1);
   static const Color _fondoPagina = Color(0xFFFFFAFA);
@@ -1017,7 +1015,7 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
     return Theme(
       data: _construirTemaBoutique(context),
       child: Scaffold(
-        backgroundColor: _fondoPagina,
+        backgroundColor: _negroPortada,
         body: SafeArea(
           child: LayoutBuilder(
             builder: (context, constraints) {
@@ -1086,20 +1084,21 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
                                 mainAxisAlignment:
                                     MainAxisAlignment.spaceBetween,
                                 children: [
-                                  const Row(
+                                  Row(
                                     children: [
-                                      Icon(
+                                      const Icon(
                                         Icons.auto_awesome_rounded,
-                                        color: _rojoMarca,
+                                        color: _doradoElegante,
                                         size: 20,
                                       ),
-                                      SizedBox(width: 8),
+                                      const SizedBox(width: 8),
                                       Text(
                                         'Nuestra Colección',
                                         style: TextStyle(
-                                          fontSize: 18,
+                                          fontSize: esEscritorio ? 22 : 19,
                                           fontWeight: FontWeight.w800,
-                                          color: _negroElegante,
+                                          color: _blanco,
+                                          letterSpacing: 0.2,
                                         ),
                                       ),
                                     ],
@@ -1111,10 +1110,11 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
                                         vertical: 5,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: _rosaClaro,
+                                        color: _negroSuperficie,
                                         borderRadius: BorderRadius.circular(20),
                                         border: Border.all(
-                                          color: _bordeSuave,
+                                          color: _doradoElegante
+                                              .withValues(alpha: 0.35),
                                         ),
                                       ),
                                       child: Text(
@@ -1122,7 +1122,7 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
                                         style: const TextStyle(
                                           fontSize: 12.5,
                                           fontWeight: FontWeight.w600,
-                                          color: _rojoMarca,
+                                          color: _champan,
                                         ),
                                       ),
                                     ),
@@ -1693,138 +1693,15 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
   }
 
   Widget _construirTarjetaProducto(BuildContext context, Producto producto) {
-    return Container(
-      decoration: BoxDecoration(
-        color: _blanco,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: _bordeSuave.withValues(alpha: 0.75),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: _negroElegante.withValues(alpha: 0.04),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
+    return _TarjetaProductoPremium(
+      producto: producto,
+      visual: _construirVisualProducto(
+        producto,
+        iconoSize: 48,
+        fit: BoxFit.cover,
       ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(20),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(20),
-          onTap: () => _mostrarDetalleProducto(context, producto),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Fotografía protagonista en proporción 3:4 con esquinas superiores redondeadas
-              AspectRatio(
-                aspectRatio: 3 / 4,
-                child: ClipRRect(
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(20),
-                  ),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: _construirVisualProducto(
-                      producto,
-                      iconoSize: 48,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                ),
-              ),
-
-              // Bloque inferior editorial: nombre, precio y botón circular discreto
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        producto.nombre,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
-                          color: _negroElegante,
-                          height: 1.25,
-                          letterSpacing: 0.1,
-                        ),
-                      ),
-                      const Spacer(),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Expanded(
-                            child: RichText(
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              text: TextSpan(
-                                children: [
-                                  const TextSpan(
-                                    text: 'L. ',
-                                    style: TextStyle(
-                                      fontSize: 12.5,
-                                      fontWeight: FontWeight.w700,
-                                      color: _rojoMarca,
-                                    ),
-                                  ),
-                                  TextSpan(
-                                    text: producto.precio.toStringAsFixed(2),
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w800,
-                                      color: _negroElegante,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Tooltip(
-                            message: 'Agregar al carrito',
-                            child: Material(
-                              color: _rosaClaro,
-                              shape: const CircleBorder(),
-                              child: InkWell(
-                                customBorder: const CircleBorder(),
-                                onTap: () => _agregarAlCarrito(producto),
-                                child: Container(
-                                  width: 44,
-                                  height: 44,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: _bordeSuave,
-                                      width: 1,
-                                    ),
-                                  ),
-                                  alignment: Alignment.center,
-                                  child: const Icon(
-                                    Icons.add_shopping_cart_rounded,
-                                    size: 20,
-                                    color: _rojoMarca,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+      onTapDetalle: () => _mostrarDetalleProducto(context, producto),
+      onAgregarCarrito: () => _agregarAlCarrito(producto),
     );
   }
 
@@ -1839,7 +1716,7 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
-          colors: [_rosaClaro, Color(0xFFFFF8F8)],
+          colors: [_negroSuperficie, Color(0xFF1C1C1C)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -1858,7 +1735,7 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
                     height: 26,
                     child: CircularProgressIndicator(
                       strokeWidth: 2.5,
-                      color: _rojoMarca,
+                      color: _doradoElegante,
                       value: loadingProgress.expectedTotalBytes != null
                           ? loadingProgress.cumulativeBytesLoaded /
                               loadingProgress.expectedTotalBytes!
@@ -1883,25 +1760,39 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
           width: iconoSize * 1.65,
           height: iconoSize * 1.65,
           decoration: BoxDecoration(
-            color: _blanco.withValues(alpha: 0.70),
+            color: const Color(0xFF1E1E1E),
             shape: BoxShape.circle,
+            border: Border.all(
+              color: _doradoElegante.withValues(alpha: 0.30),
+            ),
           ),
         ),
         Icon(
           Icons.card_giftcard_rounded,
           size: iconoSize,
-          color: _rojoMarca.withValues(alpha: 0.75),
+          color: _doradoElegante.withValues(alpha: 0.80),
         ),
       ],
     );
   }
 
+  Widget _construirContenedorEstadoOscuro({required Widget child}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 34),
+      decoration: BoxDecoration(
+        color: _negroSuperficie,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: _doradoElegante.withValues(alpha: 0.25),
+        ),
+      ),
+      child: child,
+    );
+  }
+
   Widget _construirEstadoCargando() {
-    return GlassContainer(
-      blur: 10,
-      opacity: 0.85,
-      borderRadius: 20,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+    return _construirContenedorEstadoOscuro(
       child: const Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1910,7 +1801,7 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
             height: 38,
             child: CircularProgressIndicator(
               strokeWidth: 3,
-              color: _rojoMarca,
+              color: _doradoElegante,
             ),
           ),
           SizedBox(height: 16),
@@ -1920,7 +1811,7 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w700,
-              color: _negroElegante,
+              color: _blanco,
             ),
           ),
         ],
@@ -1929,24 +1820,20 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
   }
 
   Widget _construirEstadoError() {
-    return GlassContainer(
-      blur: 10,
-      opacity: 0.85,
-      borderRadius: 20,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+    return _construirContenedorEstadoOscuro(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: _rojoMarca.withValues(alpha: 0.10),
+              color: _doradoElegante.withValues(alpha: 0.14),
               shape: BoxShape.circle,
             ),
             child: const Icon(
               Icons.cloud_off_rounded,
               size: 38,
-              color: _rojoMarca,
+              color: _doradoElegante,
             ),
           ),
           const SizedBox(height: 14),
@@ -1956,31 +1843,34 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
             style: const TextStyle(
               fontSize: 17,
               fontWeight: FontWeight.bold,
-              color: _negroElegante,
+              color: _blanco,
             ),
           ),
           const SizedBox(height: 6),
-          const Text(
+          Text(
             'Verifica tu conexión a internet e inténtalo nuevamente.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 13.5,
-              color: _grisTexto,
+              color: _champan.withValues(alpha: 0.85),
             ),
           ),
           const SizedBox(height: 18),
           ElevatedButton.icon(
             onPressed: _cargarProductos,
             style: ElevatedButton.styleFrom(
-              backgroundColor: _rojoMarca,
-              foregroundColor: _blanco,
+              backgroundColor: _doradoElegante,
+              foregroundColor: _negroPortada,
               elevation: 0,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
             icon: const Icon(Icons.refresh_rounded),
-            label: const Text('Reintentar'),
+            label: const Text(
+              'Reintentar',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
           ),
         ],
       ),
@@ -1988,24 +1878,20 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
   }
 
   Widget _construirEstadoCatalogoVacio() {
-    return GlassContainer(
-      blur: 10,
-      opacity: 0.85,
-      borderRadius: 20,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+    return _construirContenedorEstadoOscuro(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: _rojoMarca.withValues(alpha: 0.10),
+              color: _doradoElegante.withValues(alpha: 0.14),
               shape: BoxShape.circle,
             ),
             child: const Icon(
               Icons.card_giftcard_rounded,
               size: 38,
-              color: _rojoMarca,
+              color: _doradoElegante,
             ),
           ),
           const SizedBox(height: 14),
@@ -2015,16 +1901,16 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
             style: TextStyle(
               fontSize: 17,
               fontWeight: FontWeight.bold,
-              color: _negroElegante,
+              color: _blanco,
             ),
           ),
           const SizedBox(height: 6),
-          const Text(
+          Text(
             'Muy pronto actualizaremos nuestro catálogo con nuevas creaciones.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 13.5,
-              color: _grisTexto,
+              color: _champan.withValues(alpha: 0.85),
             ),
           ),
         ],
@@ -2033,24 +1919,20 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
   }
 
   Widget _construirEstadoBusquedaSinResultados() {
-    return GlassContainer(
-      blur: 10,
-      opacity: 0.85,
-      borderRadius: 20,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+    return _construirContenedorEstadoOscuro(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: _rojoMarca.withValues(alpha: 0.10),
+              color: _doradoElegante.withValues(alpha: 0.14),
               shape: BoxShape.circle,
             ),
             child: const Icon(
               Icons.search_off_rounded,
               size: 38,
-              color: _rojoMarca,
+              color: _doradoElegante,
             ),
           ),
           const SizedBox(height: 14),
@@ -2060,28 +1942,209 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
             style: TextStyle(
               fontSize: 17,
               fontWeight: FontWeight.bold,
-              color: _negroElegante,
+              color: _blanco,
             ),
           ),
           const SizedBox(height: 6),
-          const Text(
+          Text(
             'Prueba buscando con otra palabra clave o limpia el buscador para ver toda la colección.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 13.5,
-              color: _grisTexto,
+              color: _champan.withValues(alpha: 0.85),
             ),
           ),
           const SizedBox(height: 18),
-          TextButton.icon(
+          OutlinedButton.icon(
             onPressed: () {
               _buscarCtrl.clear();
               _filtrarProductos('');
             },
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _doradoElegante,
+              side: BorderSide(
+                color: _doradoElegante.withValues(alpha: 0.55),
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
             icon: const Icon(Icons.refresh_rounded),
             label: const Text('Mostrar todos los productos'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _TarjetaProductoPremium extends StatefulWidget {
+  final Producto producto;
+  final Widget visual;
+  final VoidCallback onTapDetalle;
+  final VoidCallback onAgregarCarrito;
+
+  const _TarjetaProductoPremium({
+    required this.producto,
+    required this.visual,
+    required this.onTapDetalle,
+    required this.onAgregarCarrito,
+  });
+
+  @override
+  State<_TarjetaProductoPremium> createState() =>
+      _TarjetaProductoPremiumState();
+}
+
+class _TarjetaProductoPremiumState extends State<_TarjetaProductoPremium> {
+  static const Color _tarjetaOscura = Color(0xFF171717);
+  static const Color _superficieSecundaria = Color(0xFF141414);
+  static const Color _doradoElegante = Color(0xFFC5A46D);
+  static const Color _champan = Color(0xFFF2E5C9);
+
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        decoration: BoxDecoration(
+          color: _tarjetaOscura,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: _doradoElegante.withValues(alpha: _hover ? 0.58 : 0.22),
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: _hover
+                  ? _doradoElegante.withValues(alpha: 0.12)
+                  : Colors.black.withValues(alpha: 0.35),
+              blurRadius: _hover ? 20 : 14,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: widget.onTapDetalle,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AspectRatio(
+                  aspectRatio: 3 / 4,
+                  child: ClipRRect(
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(20),
+                    ),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: widget.visual,
+                    ),
+                  ),
+                ),
+                Container(
+                  height: 1,
+                  color: _doradoElegante.withValues(alpha: 0.14),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 11, 12, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.producto.nombre,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                            height: 1.25,
+                            letterSpacing: 0.1,
+                          ),
+                        ),
+                        const Spacer(),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Expanded(
+                              child: RichText(
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                text: TextSpan(
+                                  children: [
+                                    const TextSpan(
+                                      text: 'L. ',
+                                      style: TextStyle(
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: _champan,
+                                      ),
+                                    ),
+                                    TextSpan(
+                                      text: widget.producto.precio
+                                          .toStringAsFixed(2),
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w800,
+                                        color: _doradoElegante,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Tooltip(
+                              message: 'Agregar al carrito',
+                              child: Material(
+                                color: _superficieSecundaria,
+                                shape: const CircleBorder(),
+                                child: InkWell(
+                                  customBorder: const CircleBorder(),
+                                  onTap: widget.onAgregarCarrito,
+                                  child: Container(
+                                    width: 44,
+                                    height: 44,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: _doradoElegante.withValues(
+                                          alpha: _hover ? 0.70 : 0.45,
+                                        ),
+                                        width: 1,
+                                      ),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: const Icon(
+                                      Icons.add_shopping_cart_rounded,
+                                      size: 20,
+                                      color: _doradoElegante,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
