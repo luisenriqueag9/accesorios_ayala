@@ -5,7 +5,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
 import '../models/producto.dart';
+import '../models/categoria.dart';
 import '../controllers/producto_controller.dart';
+import '../controllers/categoria_controller.dart';
 
 class RegistrarProductoView extends StatefulWidget {
   final Producto? producto;
@@ -13,12 +15,22 @@ class RegistrarProductoView extends StatefulWidget {
   final VoidCallback? onGuardado;
   final VoidCallback? onCancelar;
 
+  /// Inyección opcional para pruebas. Si es `null` se usa
+  /// [CategoriaController.cargarCategorias].
+  final Future<List<Categoria>> Function()? cargarCategorias;
+
+  /// Inyección opcional para pruebas. Si es `null` se usa
+  /// [ProductoController.guardarProducto].
+  final Future<void> Function(Producto producto)? guardarProducto;
+
   const RegistrarProductoView({
     super.key,
     this.producto,
     this.integrado = false,
     this.onGuardado,
     this.onCancelar,
+    this.cargarCategorias,
+    this.guardarProducto,
   });
 
   @override
@@ -39,6 +51,14 @@ class _RegistrarProductoViewState extends State<RegistrarProductoView> {
 
   Uint8List? imagenBytes;
   bool _guardando = false;
+
+  // Categorías: la selección parte SIEMPRE de las asignadas al producto y
+  // nunca se filtra contra las categorías cargadas (preserva ocultas y no
+  // disponibles). Solo cambia por acción explícita del administrador.
+  final Set<String> _categoriasSeleccionadas = <String>{};
+  List<Categoria> _categorias = const [];
+  bool _cargandoCategorias = true;
+  String? _errorCategorias;
 
   Future<String?> subirImagenStorage(Uint8List bytes) async {
     try {
@@ -66,6 +86,49 @@ class _RegistrarProductoViewState extends State<RegistrarProductoView> {
       descripcionCtrl.text = widget.producto!.descripcion;
       precioCtrl.text = widget.producto!.precio.toString();
     }
+
+    _categoriasSeleccionadas.addAll(
+      widget.producto?.categoriaIds ?? const <String>[],
+    );
+    _cargarCategorias();
+  }
+
+  Future<void> _cargarCategorias() async {
+    if (_errorCategorias != null || !_cargandoCategorias) {
+      // Reintento: initState ya marcó la carga inicial sin setState.
+      setState(() {
+        _cargandoCategorias = true;
+        _errorCategorias = null;
+      });
+    }
+
+    try {
+      final categorias = await (widget.cargarCategorias ??
+          CategoriaController.cargarCategorias)();
+      if (!mounted) return;
+      setState(() {
+        _categorias = categorias;
+        _cargandoCategorias = false;
+      });
+    } catch (e) {
+      debugPrint('Error cargando categorías: $e');
+      if (!mounted) return;
+      setState(() {
+        _cargandoCategorias = false;
+        _errorCategorias = 'No se pudieron cargar las categorías.';
+      });
+    }
+  }
+
+  void _alternarCategoria(String id, bool seleccionar) {
+    if (_guardando) return;
+    setState(() {
+      if (seleccionar) {
+        _categoriasSeleccionadas.add(id);
+      } else {
+        _categoriasSeleccionadas.remove(id);
+      }
+    });
   }
 
   Future<void> seleccionarImagen() async {
@@ -153,9 +216,12 @@ class _RegistrarProductoViewState extends State<RegistrarProductoView> {
         precio: precio,
         imageUrl: imageUrlFinal,
         visibleCatalogo: widget.producto?.visibleCatalogo ?? true,
+        categoriaIds: _categoriasSeleccionadas.toList(),
       );
 
-      await ProductoController.guardarProducto(producto);
+      await (widget.guardarProducto ?? ProductoController.guardarProducto)(
+        producto,
+      );
       if (!mounted) return;
 
       if (widget.integrado) {
@@ -281,6 +347,181 @@ class _RegistrarProductoViewState extends State<RegistrarProductoView> {
               textStyle: const TextStyle(fontWeight: FontWeight.w600),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _chipCategoria({
+    required String id,
+    required String etiqueta,
+    String? insignia,
+  }) {
+    final seleccionada = _categoriasSeleccionadas.contains(id);
+    return FilterChip(
+      key: ValueKey('chip-categoria-$id'),
+      label: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(child: Text(etiqueta, overflow: TextOverflow.ellipsis)),
+          if (insignia != null) ...[
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                insignia,
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: _grisTexto,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+      selected: seleccionada,
+      onSelected: _guardando
+          ? null
+          : (valor) => _alternarCategoria(id, valor),
+      showCheckmark: true,
+      checkmarkColor: _rojoMarca,
+      selectedColor: _rosaSuave,
+      backgroundColor: Colors.white,
+      side: BorderSide(
+        color: seleccionada ? _rojoMarca : _bordeSuave,
+        width: 1.2,
+      ),
+      labelStyle: TextStyle(
+        color: seleccionada ? _rojoMarca : _negroElegante,
+        fontWeight: seleccionada ? FontWeight.w700 : FontWeight.w500,
+        fontSize: 13,
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    );
+  }
+
+  Widget _construirSeccionCategorias() {
+    final idsCargados = _categorias.map((c) => c.id).toSet();
+
+    // Visibles: siempre ofrecidas. Ocultas: solo si ya estaban seleccionadas.
+    final chips = <Widget>[
+      for (final c in _categorias)
+        if (c.visible || _categoriasSeleccionadas.contains(c.id))
+          _chipCategoria(
+            id: c.id,
+            etiqueta: c.nombre,
+            insignia: c.visible ? null : 'Oculta',
+          ),
+    ];
+
+    // IDs asignados que no aparecen en la consulta: se conservan y se
+    // muestran solo cuando la carga fue exitosa (si falló, no se sabe).
+    final noDisponibles = (_cargandoCategorias || _errorCategorias != null)
+        ? const <String>[]
+        : _categoriasSeleccionadas
+              .where((id) => !idsCargados.contains(id))
+              .toList();
+    for (final id in noDisponibles) {
+      chips.add(
+        _chipCategoria(
+          id: id,
+          etiqueta: 'Categoría no disponible',
+          insignia: 'No encontrada',
+        ),
+      );
+    }
+
+    Widget contenido;
+    if (_cargandoCategorias) {
+      contenido = const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: _rojoMarca,
+              ),
+            ),
+            SizedBox(width: 10),
+            Text(
+              'Cargando categorías...',
+              style: TextStyle(fontSize: 13, color: _grisTexto),
+            ),
+          ],
+        ),
+      );
+    } else if (_errorCategorias != null) {
+      final asignadas = _categoriasSeleccionadas.length;
+      contenido = Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          const Icon(Icons.error_outline, size: 18, color: _rojoMarca),
+          Text(
+            asignadas > 0
+                ? '$_errorCategorias Se conservarán las $asignadas asignadas.'
+                : _errorCategorias!,
+            style: const TextStyle(fontSize: 13, color: _grisTexto),
+          ),
+          TextButton.icon(
+            key: const ValueKey('btn-reintentar-categorias'),
+            onPressed: _guardando ? null : _cargarCategorias,
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text('Reintentar'),
+            style: TextButton.styleFrom(foregroundColor: _rojoMarca),
+          ),
+        ],
+      );
+    } else if (chips.isEmpty) {
+      contenido = const Text(
+        'No hay categorías activas disponibles.',
+        style: TextStyle(fontSize: 13, color: _grisTexto),
+      );
+    } else {
+      contenido = Wrap(spacing: 8, runSpacing: 8, children: chips);
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _bordeSuave, width: 1.2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.sell_outlined, size: 20, color: _grisTexto),
+              SizedBox(width: 8),
+              Text(
+                'Categorías',
+                style: TextStyle(
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w700,
+                  color: _negroElegante,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Opcional. Puedes seleccionar varias.',
+            style: TextStyle(fontSize: 12.5, color: _grisTexto),
+          ),
+          const SizedBox(height: 10),
+          contenido,
         ],
       ),
     );
@@ -412,6 +653,8 @@ class _RegistrarProductoViewState extends State<RegistrarProductoView> {
                       icono: Icons.attach_money_rounded,
                     ),
                   ),
+                  const SizedBox(height: 20),
+                  _construirSeccionCategorias(),
                   const SizedBox(height: 24),
                   Wrap(
                     alignment: WrapAlignment.end,

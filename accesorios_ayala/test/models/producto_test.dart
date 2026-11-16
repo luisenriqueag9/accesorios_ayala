@@ -96,7 +96,127 @@ void main() {
         'precio': 290.5,
         'imageUrl': 'https://ejemplo.com/placa.jpg',
         'visibleCatalogo': false,
+        'categoriaIds': <String>[],
       });
+    });
+  });
+
+  group('Producto.categoriaIds', () {
+    Map<String, dynamic> base([Map<String, dynamic> extra = const {}]) => {
+      'id': 'prod-cat',
+      'nombre': 'Pulsera Graduación',
+      'descripcion': 'Acero grabado',
+      'precio': 275.5,
+      'imageUrl': 'https://ejemplo.com/grad.jpg',
+      'visibleCatalogo': false,
+      ...extra,
+    };
+
+    test('un producto nuevo no tiene categorías', () {
+      final producto = Producto(
+        id: 'p',
+        nombre: 'n',
+        descripcion: 'd',
+        precio: 1,
+      );
+      expect(producto.categoriaIds, isEmpty);
+      expect(producto.toMap()['categoriaIds'], <String>[]);
+    });
+
+    test('producto antiguo sin campo categoriaIds carga con lista vacía', () {
+      final producto = Producto.fromMap(base());
+      expect(producto.categoriaIds, isEmpty);
+      expect(producto.nombre, 'Pulsera Graduación');
+      expect(producto.precio, 275.5);
+      expect(producto.visibleCatalogo, isFalse);
+    });
+
+    test('conserva varios IDs válidos en orden', () {
+      final producto = Producto.fromMap(
+        base({
+          'categoriaIds': ['idPulseras', 'idGraduacion', 'idRegalos'],
+        }),
+      );
+      expect(producto.categoriaIds, ['idPulseras', 'idGraduacion', 'idRegalos']);
+    });
+
+    test('ignora solo los elementos inválidos y conserva los válidos', () {
+      final producto = Producto.fromMap(
+        base({
+          'categoriaIds': [1, 'idA', null, true, 'idB', 2.5, <String>[], {}],
+        }),
+      );
+      expect(producto.categoriaIds, ['idA', 'idB']);
+    });
+
+    test('elimina IDs vacíos, recorta espacios y quita duplicados', () {
+      final producto = Producto.fromMap(
+        base({
+          'categoriaIds': ['', '   ', ' idA ', 'idB', 'idA', '\tidB\n', 'idC'],
+        }),
+      );
+      expect(producto.categoriaIds, ['idA', 'idB', 'idC']);
+    });
+
+    test('null o tipo incorrecto produce lista vacía', () {
+      for (final valor in [null, 'idA', 5, true, {'a': 'b'}]) {
+        final producto = Producto.fromMap(base({'categoriaIds': valor}));
+        expect(producto.categoriaIds, isEmpty, reason: 'valor: $valor');
+      }
+    });
+
+    test('toMap y fromMap son coherentes y conservan todos los campos', () {
+      final original = Producto(
+        id: 'prod-rt',
+        nombre: 'Collar',
+        descripcion: 'Plata',
+        precio: 410.0,
+        imageUrl: 'https://ejemplo.com/collar.jpg',
+        visibleCatalogo: false,
+        categoriaIds: ['idCollares', 'idMama'],
+      );
+
+      final map = original.toMap();
+      expect(map, {
+        'id': 'prod-rt',
+        'nombre': 'Collar',
+        'descripcion': 'Plata',
+        'precio': 410.0,
+        'imageUrl': 'https://ejemplo.com/collar.jpg',
+        'visibleCatalogo': false,
+        'categoriaIds': ['idCollares', 'idMama'],
+      });
+
+      final copia = Producto.fromMap(map);
+      expect(copia.id, original.id);
+      expect(copia.nombre, original.nombre);
+      expect(copia.descripcion, original.descripcion);
+      expect(copia.precio, original.precio);
+      expect(copia.imageUrl, original.imageUrl);
+      expect(copia.visibleCatalogo, original.visibleCatalogo);
+      expect(copia.categoriaIds, original.categoriaIds);
+    });
+
+    test('la lista está protegida contra modificaciones externas', () {
+      final fuente = ['idA', 'idB'];
+      final producto = Producto(
+        id: 'p',
+        nombre: 'n',
+        descripcion: 'd',
+        precio: 1,
+        categoriaIds: fuente,
+      );
+
+      fuente.add('idC');
+      fuente[0] = 'cambiado';
+      expect(producto.categoriaIds, ['idA', 'idB']);
+
+      expect(() => producto.categoriaIds.add('idX'), throwsUnsupportedError);
+      expect(() => producto.categoriaIds.clear(), throwsUnsupportedError);
+
+      final map = producto.toMap();
+      (map['categoriaIds'] as List).add('idY');
+      expect(producto.categoriaIds, ['idA', 'idB']);
     });
   });
 }
