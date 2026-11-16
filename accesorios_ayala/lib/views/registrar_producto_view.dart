@@ -152,6 +152,7 @@ class _RegistrarProductoViewState extends State<RegistrarProductoView> {
         descripcion: descripcion,
         precio: precio,
         imageUrl: imageUrlFinal,
+        visibleCatalogo: widget.producto?.visibleCatalogo ?? true,
       );
 
       await ProductoController.guardarProducto(producto);
