@@ -6,16 +6,22 @@ import '../models/categoria.dart';
 import '../models/producto.dart';
 
 /// Devuelve los productos que deben mostrarse en el catálogo público:
-/// solo los que tienen `visibleCatalogo == true` y, si [consulta] no está
-/// vacía, cuyo nombre o descripción la contengan (sin distinguir mayúsculas).
-/// Conserva el orden original y no modifica la lista recibida.
+/// solo los que tienen `visibleCatalogo == true`, filtrados opcionalmente por
+/// [categoriaId] y, si [consulta] no está vacía, cuyo nombre o descripción la
+/// contengan (sin distinguir mayúsculas). Conserva el orden original, no
+/// duplica productos y no modifica la lista recibida.
 List<Producto> filtrarProductosCatalogo(
   List<Producto> productos,
-  String consulta,
-) {
+  String consulta, {
+  String? categoriaId,
+}) {
   final texto = consulta.trim().toLowerCase();
+  final categoria = categoriaId?.trim();
+  final tieneCategoria = categoria != null && categoria.isNotEmpty;
+
   return productos.where((p) {
     if (!p.visibleCatalogo) return false;
+    if (tieneCategoria && !p.categoriaIds.contains(categoria)) return false;
     if (texto.isEmpty) return true;
     return p.nombre.toLowerCase().contains(texto) ||
         p.descripcion.toLowerCase().contains(texto);
@@ -83,13 +89,11 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
   bool _cargando = true;
   String? _errorCarga;
 
-  // Estado independiente para categorías visibles (sin filtros visuales en esta etapa).
-  // ignore: unused_field
+  // Estado independiente para categorías visibles y filtro seleccionado.
   List<Categoria> _categorias = [];
-  // ignore: unused_field
   bool _cargandoCategorias = true;
-  // ignore: unused_field
   String? _errorCategorias;
+  String? _categoriaSeleccionadaId;
 
   bool get _hayProductosVisibles => _productos.any((p) => p.visibleCatalogo);
 
@@ -157,10 +161,7 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
 
       setState(() {
         _productos = lista;
-        _productosFiltrados = filtrarProductosCatalogo(
-          _productos,
-          _buscarCtrl.text,
-        );
+        _productosFiltrados = _calcularProductosFiltrados();
         _cargando = false;
       });
     } catch (e) {
@@ -185,9 +186,15 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
           () => CategoriaController.cargarCategorias(soloVisibles: true))();
       if (!mounted) return;
 
+      final preparadas = prepararCategoriasCatalogo(lista);
       setState(() {
-        _categorias = prepararCategoriasCatalogo(lista);
+        _categorias = preparadas;
         _cargandoCategorias = false;
+        if (_categoriaSeleccionadaId != null &&
+            !preparadas.any((c) => c.id == _categoriaSeleccionadaId)) {
+          _categoriaSeleccionadaId = null;
+          _productosFiltrados = _calcularProductosFiltrados();
+        }
       });
     } catch (e) {
       if (!mounted) return;
@@ -199,9 +206,25 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
     }
   }
 
+  List<Producto> _calcularProductosFiltrados({String? consulta}) {
+    return filtrarProductosCatalogo(
+      _productos,
+      consulta ?? _buscarCtrl.text,
+      categoriaId: _categoriaSeleccionadaId,
+    );
+  }
+
   void _filtrarProductos(String consulta) {
     setState(() {
-      _productosFiltrados = filtrarProductosCatalogo(_productos, consulta);
+      _productosFiltrados = _calcularProductosFiltrados(consulta: consulta);
+    });
+  }
+
+  void _seleccionarCategoria(String? categoriaId) {
+    if (_categoriaSeleccionadaId == categoriaId) return;
+    setState(() {
+      _categoriaSeleccionadaId = categoriaId;
+      _productosFiltrados = _calcularProductosFiltrados();
     });
   }
 
@@ -1205,6 +1228,17 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
                             ),
                           ),
 
+                        // 3.5. Barra responsive de filtros por categoría
+                        if (!_cargando &&
+                            _errorCarga == null &&
+                            _hayProductosVisibles)
+                          SliverToBoxAdapter(
+                            child: _construirBarraCategorias(
+                              paddingContenido: paddingContenido,
+                              ancho: ancho,
+                            ),
+                          ),
+
                           // 4. Estados visuales: Cargando, Error, Sin productos registrados, Sin coincidencias o Cuadrícula
                           if (_cargando)
                             SliverToBoxAdapter(
@@ -1992,7 +2026,157 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
     );
   }
 
+  Widget _construirBarraCategorias({
+    required double paddingContenido,
+    required double ancho,
+  }) {
+    final chips = <Widget>[
+      _construirChipCategoria(
+        etiqueta: 'Todos',
+        seleccionado: _categoriaSeleccionadaId == null,
+        onTap: () => _seleccionarCategoria(null),
+      ),
+      for (final categoria in _categorias)
+        _construirChipCategoria(
+          etiqueta: categoria.nombre,
+          seleccionado: _categoriaSeleccionadaId == categoria.id,
+          onTap: () => _seleccionarCategoria(categoria.id),
+        ),
+    ];
+
+    final esPantallaAmplia = ancho >= 768;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (esPantallaAmplia)
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: paddingContenido),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: chips,
+              ),
+            )
+          else
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: EdgeInsets.symmetric(horizontal: paddingContenido),
+              child: Row(
+                children: [
+                  for (var i = 0; i < chips.length; i++) ...[
+                    if (i > 0) const SizedBox(width: 8),
+                    chips[i],
+                  ],
+                ],
+              ),
+            ),
+          if (_errorCategorias != null)
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                paddingContenido,
+                8,
+                paddingContenido,
+                0,
+              ),
+              child: Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  Text(
+                    'No se pudieron cargar las categorías.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _champan.withValues(alpha: 0.78),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: _cargandoCategorias ? null : _cargarCategorias,
+                    style: TextButton.styleFrom(
+                      foregroundColor: _doradoElegante,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    icon: const Icon(Icons.refresh_rounded, size: 15),
+                    label: const Text(
+                      'Reintentar',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _construirChipCategoria({
+    required String etiqueta,
+    required bool seleccionado,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: seleccionado ? _doradoElegante : _negroSuperficie,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: seleccionado
+                  ? _doradoElegante
+                  : _doradoElegante.withValues(alpha: 0.30),
+            ),
+          ),
+          child: Text(
+            etiqueta,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: seleccionado ? FontWeight.w800 : FontWeight.w600,
+              color: seleccionado ? _negroPortada : _champan,
+              letterSpacing: 0.15,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _construirEstadoBusquedaSinResultados() {
+    final tieneCategoria = _categoriaSeleccionadaId != null;
+    final tieneBusqueda = _buscarCtrl.text.trim().isNotEmpty;
+
+    final String titulo;
+    final String subtitulo;
+    if (tieneCategoria && tieneBusqueda) {
+      titulo = 'No encontramos productos que coincidan en esta categoría';
+      subtitulo =
+          'Prueba con otra palabra clave, limpia el buscador o regresa a "Todos".';
+    } else if (tieneCategoria) {
+      titulo = 'No hay productos en esta categoría';
+      subtitulo =
+          'Prueba seleccionando otra categoría o regresa a "Todos" para ver toda la colección.';
+    } else {
+      titulo = 'No encontramos productos que coincidan';
+      subtitulo =
+          'Prueba buscando con otra palabra clave o limpia el buscador para ver toda la colección.';
+    }
+
     return _construirContenedorEstadoOscuro(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -2003,17 +2187,19 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
               color: _doradoElegante.withValues(alpha: 0.14),
               shape: BoxShape.circle,
             ),
-            child: const Icon(
-              Icons.search_off_rounded,
+            child: Icon(
+              tieneCategoria && !tieneBusqueda
+                  ? Icons.category_outlined
+                  : Icons.search_off_rounded,
               size: 38,
               color: _doradoElegante,
             ),
           ),
           const SizedBox(height: 14),
-          const Text(
-            'No encontramos productos que coincidan',
+          Text(
+            titulo,
             textAlign: TextAlign.center,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 17,
               fontWeight: FontWeight.bold,
               color: _blanco,
@@ -2021,7 +2207,7 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Prueba buscando con otra palabra clave o limpia el buscador para ver toda la colección.',
+            subtitulo,
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 13.5,
@@ -2029,22 +2215,54 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
             ),
           ),
           const SizedBox(height: 18),
-          OutlinedButton.icon(
-            onPressed: () {
-              _buscarCtrl.clear();
-              _filtrarProductos('');
-            },
-            style: OutlinedButton.styleFrom(
-              foregroundColor: _doradoElegante,
-              side: BorderSide(
-                color: _doradoElegante.withValues(alpha: 0.55),
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            icon: const Icon(Icons.refresh_rounded),
-            label: const Text('Mostrar todos los productos'),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              if (tieneBusqueda)
+                OutlinedButton.icon(
+                  onPressed: () {
+                    _buscarCtrl.clear();
+                    _filtrarProductos('');
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _doradoElegante,
+                    side: BorderSide(
+                      color: _doradoElegante.withValues(alpha: 0.55),
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: Text(
+                    tieneCategoria
+                        ? 'Limpiar búsqueda'
+                        : 'Mostrar todos los productos',
+                  ),
+                ),
+              if (tieneCategoria)
+                ElevatedButton.icon(
+                  onPressed: () {
+                    if (tieneBusqueda) _buscarCtrl.clear();
+                    _seleccionarCategoria(null);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _doradoElegante,
+                    foregroundColor: _negroPortada,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  icon: const Icon(Icons.apps_rounded, size: 18),
+                  label: const Text(
+                    'Volver a Todos',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+            ],
           ),
         ],
       ),

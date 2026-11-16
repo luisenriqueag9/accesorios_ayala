@@ -94,6 +94,45 @@ void main() {
       );
       expect(filtrarProductosCatalogo(_productos, 'secreto'), isEmpty);
     });
+
+    test('filtra por categoriaId y combina con búsqueda sin duplicar', () {
+      final lista = <Producto>[
+        _p('a', 'Pulsera Mix', categoriaIds: ['c1', 'c2a']),
+        _p(
+          'b',
+          'Collar Oro',
+          descripcion: 'Con dije de corazón',
+          categoriaIds: ['c2b'],
+        ),
+        _p('c', 'Sin Categoría'),
+        _p('d', 'Oculto En Cat', visible: false, categoriaIds: ['c1']),
+      ];
+
+      expect(
+        filtrarProductosCatalogo(lista, '', categoriaId: null).map((p) => p.id),
+        ['a', 'b', 'c'],
+      );
+      expect(
+        filtrarProductosCatalogo(lista, '', categoriaId: 'c1').map((p) => p.id),
+        ['a'],
+      );
+      expect(
+        filtrarProductosCatalogo(lista, '', categoriaId: 'c2a').map((p) => p.id),
+        ['a'],
+      );
+      expect(
+        filtrarProductosCatalogo(
+          lista,
+          'corazón',
+          categoriaId: 'c2b',
+        ).map((p) => p.id),
+        ['b'],
+      );
+      expect(
+        filtrarProductosCatalogo(lista, 'corazón', categoriaId: 'c1'),
+        isEmpty,
+      );
+    });
   });
 
   group('CatalogoPublicoView - visibilidad y búsqueda', () {
@@ -300,6 +339,199 @@ void main() {
           findsOneWidget,
         );
         expect(find.text('Reintentar'), findsOneWidget);
+      },
+    );
+  });
+
+  group('CatalogoPublicoView - filtros visuales por categoría (Etapa 4D)', () {
+    final productos4D = <Producto>[
+      _p(
+        'p1',
+        'Pulsera Mixta',
+        descripcion: 'Acero y perlas',
+        categoriaIds: ['c1', 'c2a'],
+      ),
+      _p(
+        'p2',
+        'Collar Clásico',
+        descripcion: 'Baño de oro',
+        categoriaIds: ['c2b'],
+      ),
+      _p('p3', 'Detalle Libre', descripcion: 'Sin categoría asignada'),
+      _p(
+        'p4',
+        'Producto Oculto',
+        visible: false,
+        categoriaIds: ['c1', 'c3'],
+      ),
+    ];
+
+    testWidgets(
+      'muestra "Todos" seleccionado inicialmente y chips visibles ordenados',
+      (tester) async {
+        await _montar(
+          tester,
+          () async => productos4D,
+          cargarCategorias: () async => _categorias,
+        );
+
+        expect(find.text('Todos'), findsOneWidget);
+        expect(find.text('Pulseras'), findsOneWidget);
+        expect(find.text('Aretes'), findsOneWidget);
+        expect(find.text('Collares'), findsOneWidget);
+        expect(find.text('Tazas'), findsOneWidget);
+        expect(find.text('Oculta'), findsNothing);
+
+        // Verifica orden administrativo: Pulseras (1), Aretes (2), Collares (2), Tazas (3).
+        final xTodos = tester.getTopLeft(find.text('Todos')).dx;
+        final xPulseras = tester.getTopLeft(find.text('Pulseras')).dx;
+        final xAretes = tester.getTopLeft(find.text('Aretes')).dx;
+        final xCollares = tester.getTopLeft(find.text('Collares')).dx;
+        final xTazas = tester.getTopLeft(find.text('Tazas')).dx;
+        expect(xTodos < xPulseras, isTrue);
+        expect(xPulseras < xAretes, isTrue);
+        expect(xAretes < xCollares, isTrue);
+        expect(xCollares < xTazas, isTrue);
+
+        // "Todos" muestra todos los productos visibles, incluso sin categorías.
+        expect(find.text('Pulsera Mixta'), findsOneWidget);
+        expect(find.text('Collar Clásico'), findsOneWidget);
+        expect(find.text('Detalle Libre'), findsOneWidget);
+        expect(find.text('Producto Oculto'), findsNothing);
+        expect(find.text('3 creaciones'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'filtra por categoría, permite múltiples categorías sin duplicar y combina con búsqueda',
+      (tester) async {
+        await _montar(
+          tester,
+          () async => productos4D,
+          cargarCategorias: () async => _categorias,
+        );
+
+        await tester.tap(find.text('Pulseras'));
+        await tester.pump();
+
+        expect(find.text('Pulsera Mixta'), findsOneWidget);
+        expect(find.text('Collar Clásico'), findsNothing);
+        expect(find.text('Detalle Libre'), findsNothing);
+        expect(find.text('Producto Oculto'), findsNothing);
+        expect(find.text('1 creación'), findsOneWidget);
+
+        // El mismo producto en otra categoría asignada aparece sin duplicados.
+        await tester.tap(find.text('Aretes'));
+        await tester.pump();
+        expect(find.text('Pulsera Mixta'), findsOneWidget);
+        expect(find.text('1 creación'), findsOneWidget);
+
+        // Combina categoría con búsqueda por nombre o descripción.
+        await tester.tap(find.text('Collares'));
+        await tester.pump();
+        expect(find.text('Collar Clásico'), findsOneWidget);
+
+        await _buscar(tester, 'oro');
+        expect(find.text('Collar Clásico'), findsOneWidget);
+        expect(find.text('1 creación'), findsOneWidget);
+
+        await _buscar(tester, 'acero');
+        expect(find.text('Collar Clásico'), findsNothing);
+        expect(
+          find.text('No encontramos productos que coincidan en esta categoría'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'categoría sin productos muestra mensaje adecuado y permite volver a "Todos"',
+      (tester) async {
+        await _montar(
+          tester,
+          () async => productos4D,
+          cargarCategorias: () async => _categorias,
+        );
+
+        await tester.tap(find.text('Tazas'));
+        await tester.pump();
+
+        expect(find.text('No hay productos en esta categoría'), findsOneWidget);
+        expect(find.text('Volver a Todos'), findsOneWidget);
+
+        await tester.tap(find.text('Volver a Todos'));
+        await tester.pump();
+
+        expect(find.text('Pulsera Mixta'), findsOneWidget);
+        expect(find.text('Collar Clásico'), findsOneWidget);
+        expect(find.text('Detalle Libre'), findsOneWidget);
+        expect(find.text('3 creaciones'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'conserva el contenido del carrito al cambiar de categoría y buscar',
+      (tester) async {
+        await _montar(
+          tester,
+          () async => productos4D,
+          cargarCategorias: () async => _categorias,
+        );
+
+        await tester.tap(find.byIcon(Icons.add_shopping_cart_rounded).first);
+        await tester.pump();
+
+        await tester.tap(find.text('Collares'));
+        await tester.pump();
+        await _buscar(tester, 'oro');
+
+        await tester.tap(find.byIcon(Icons.shopping_bag_outlined).first);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 200));
+
+        expect(find.text('Total del carrito'), findsOneWidget);
+        expect(find.text('1 unidad agregada'), findsOneWidget);
+        expect(find.text('Pulsera Mixta'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'si falla la carga de categorías mantiene "Todos", productos y permite reintentar',
+      (tester) async {
+        var intento = 0;
+        await _montar(
+          tester,
+          () async => productos4D,
+          cargarCategorias: () async {
+            intento++;
+            if (intento == 1) {
+              throw Exception('sin conexión categorías');
+            }
+            return _categorias;
+          },
+        );
+
+        expect(find.text('Todos'), findsOneWidget);
+        expect(find.text('Pulsera Mixta'), findsOneWidget);
+        expect(find.text('Collar Clásico'), findsOneWidget);
+        expect(find.text('Detalle Libre'), findsOneWidget);
+        expect(
+          find.text('No se pudieron cargar las categorías.'),
+          findsOneWidget,
+        );
+        expect(find.text('Reintentar'), findsOneWidget);
+
+        await tester.tap(find.text('Reintentar'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+
+        expect(intento, 2);
+        expect(
+          find.text('No se pudieron cargar las categorías.'),
+          findsNothing,
+        );
+        expect(find.text('Pulseras'), findsOneWidget);
+        expect(find.text('Collares'), findsOneWidget);
       },
     );
   });
