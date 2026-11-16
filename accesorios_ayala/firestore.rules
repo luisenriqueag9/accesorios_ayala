@@ -16,6 +16,31 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    function esCategoriaValida(data, categoriaId) {
+      return data.keys().hasOnly(['id', 'nombre', 'orden', 'visible'])
+        && data.keys().hasAll(['id', 'nombre', 'orden', 'visible'])
+        && data.id is string
+        && data.id == categoriaId
+        && data.nombre is string
+        && data.nombre.size() > 0
+        && data.nombre.size() <= 80
+        && data.nombre.matches('.*\\S.*')
+        && data.orden is int
+        && data.visible is bool;
+    }
+
+    match /categorias/{categoriaId} {
+      allow read: if true;
+      allow create: if isAdmin()
+        && esCategoriaValida(request.resource.data, categoriaId);
+      allow update: if isAdmin()
+        && esCategoriaValida(request.resource.data, categoriaId)
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['nombre', 'orden', 'visible']);
+      allow delete: if false;
+    }
+
     match /clientes/{clienteId} {
       allow read, write: if isAdmin();
     }
