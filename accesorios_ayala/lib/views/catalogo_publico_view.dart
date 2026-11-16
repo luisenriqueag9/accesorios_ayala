@@ -22,6 +22,12 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
   static const Color _grisTexto = Color(0xFF6E6566);
   static const Color _bordeSuave = Color(0xFFF2E1E2);
 
+  // Paleta de portada premium (negro profundo, dorado y champán)
+  static const Color _negroPortada = Color(0xFF0B0B0B);
+  static const Color _negroSuperficie = Color(0xFF141414);
+  static const Color _doradoElegante = Color(0xFFC5A46D);
+  static const Color _champan = Color(0xFFF2E5C9);
+
   final TextEditingController _buscarCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
   final GlobalKey _claveSeccionProductos = GlobalKey();
@@ -1012,84 +1018,70 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
       data: _construirTemaBoutique(context),
       child: Scaffold(
         backgroundColor: _fondoPagina,
-        body: Stack(
-          children: [
-            // Halo decorativo superior en rosa muy claro y blanco
-            Positioned(
-              top: -100,
-              left: -60,
-              right: -60,
-              height: 320,
-              child: Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      _rosaClaro,
-                      Color(0xFFFFF7F7),
-                      _fondoPagina,
-                    ],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
-                ),
-              ),
-            ),
+        body: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final ancho = constraints.maxWidth;
+              final esEscritorio = ancho >= 800;
+              final columnas = _calcularColumnas(ancho);
+              final altoTarjeta = _calcularAltoTarjeta(ancho);
+              final paddingHorizontal = ancho < 600 ? 16.0 : 24.0;
+              final paddingContenido = ancho > 1280
+                  ? (ancho - 1280) / 2 + paddingHorizontal
+                  : paddingHorizontal;
 
-            SafeArea(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final ancho = constraints.maxWidth;
-                  final esEscritorio = ancho >= 800;
-                  final columnas = _calcularColumnas(ancho);
-                  final altoTarjeta = _calcularAltoTarjeta(ancho);
-                  final paddingHorizontal = ancho < 600 ? 16.0 : 24.0;
-
-                  return Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 1280),
-                      child: Column(
-                        children: [
-                          // 1. Encabezado fijo elegante + Buscador
-                          Padding(
-                            padding: EdgeInsets.fromLTRB(
-                              paddingHorizontal,
-                              12,
-                              paddingHorizontal,
-                              8,
-                            ),
-                            child: _construirEncabezado(
-                              context,
-                              esEscritorio: esEscritorio,
-                            ),
+              return Column(
+                children: [
+                  // 1. Encabezado fijo premium en negro profundo + Buscador + Carrito
+                  Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: _negroPortada,
+                      border: Border(
+                        bottom: BorderSide(
+                          color: _doradoElegante.withValues(alpha: 0.25),
+                        ),
+                      ),
+                    ),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 1280),
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: paddingHorizontal,
+                            vertical: esEscritorio ? 14 : 12,
                           ),
-                          Expanded(
-                            child: CustomScrollView(
-                              controller: _scrollCtrl,
-                              physics: const BouncingScrollPhysics(),
-                              slivers: [
-                                // 2. Hero Banner moderno
-                                SliverToBoxAdapter(
-                                  child: Padding(
-                                    padding: EdgeInsets.symmetric(
-                                      horizontal: paddingHorizontal,
-                                      vertical: 8,
-                                    ),
-                                    child: _construirBannerBienvenida(
-                                      esEscritorio: esEscritorio,
-                                    ),
-                                  ),
-                                ),
+                          child: _construirEncabezado(
+                            context,
+                            esEscritorio: esEscritorio,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: CustomScrollView(
+                      controller: _scrollCtrl,
+                      physics: const BouncingScrollPhysics(),
+                      slivers: [
+                        // 2. Hero Banner premium de ancho completo en negro y dorado
+                        SliverToBoxAdapter(
+                          child: _construirBannerBienvenida(
+                            esEscritorio: esEscritorio,
+                            paddingHorizontal: paddingHorizontal,
+                          ),
+                        ),
 
-                          // 3. Barra de título de sección y conteo de resultados
-                          SliverToBoxAdapter(
-                            child: Padding(
-                              key: _claveSeccionProductos,
-                              padding: EdgeInsets.fromLTRB(
-                                paddingHorizontal,
-                                12,
-                                paddingHorizontal,
-                                12,
-                              ),
+                        // 3. Barra de título de sección y conteo de resultados
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            key: _claveSeccionProductos,
+                            padding: EdgeInsets.fromLTRB(
+                              paddingContenido,
+                              20,
+                              paddingContenido,
+                              12,
+                            ),
                               child: Row(
                                 mainAxisAlignment:
                                     MainAxisAlignment.spaceBetween,
@@ -1183,9 +1175,9 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
                           else
                             SliverPadding(
                               padding: EdgeInsets.fromLTRB(
-                                paddingHorizontal,
+                                paddingContenido,
                                 4,
-                                paddingHorizontal,
+                                paddingContenido,
                                 36,
                               ),
                               sliver: SliverGrid(
@@ -1208,17 +1200,13 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
                                 ),
                               ),
                             ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
+                      ],
                     ),
-                  );
-                },
-              ),
-            ),
-          ],
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );
@@ -1228,96 +1216,80 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
     BuildContext context, {
     required bool esEscritorio,
   }) {
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: esEscritorio ? 22 : 14,
-        vertical: esEscritorio ? 14 : 12,
-      ),
-      decoration: BoxDecoration(
-        color: _blanco,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: _bordeSuave),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              // Logo oficial con marco blanco limpio
-              Container(
-                width: esEscritorio ? 52 : 46,
-                height: esEscritorio ? 52 : 46,
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  color: _blanco,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: _bordeSuave),
-                ),
-                child: Image.asset(
-                  'assets/logo/logo_ayala.png',
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) => const Icon(
-                    Icons.auto_awesome_rounded,
-                    color: _negroElegante,
-                  ),
+    return Column(
+      children: [
+        Row(
+          children: [
+            // Logo oficial con marco oscuro y acento dorado
+            Container(
+              width: esEscritorio ? 50 : 44,
+              height: esEscritorio ? 50 : 44,
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                color: _negroSuperficie,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _doradoElegante.withValues(alpha: 0.40),
                 ),
               ),
-              SizedBox(width: esEscritorio ? 14 : 10),
+              child: Image.asset(
+                'assets/logo/logo_ayala.png',
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Icon(
+                  Icons.auto_awesome_rounded,
+                  color: _doradoElegante,
+                ),
+              ),
+            ),
+            SizedBox(width: esEscritorio ? 14 : 10),
 
-              // Marca y línea de negocio
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Accesorios Ayala',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: esEscritorio ? 20 : 18,
-                        fontWeight: FontWeight.w800,
-                        color: _negroElegante,
-                        letterSpacing: 0.2,
-                      ),
+            // Marca y subtítulo
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Accesorios Ayala',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: esEscritorio ? 20 : 18,
+                      fontWeight: FontWeight.w800,
+                      color: _blanco,
+                      letterSpacing: 0.4,
                     ),
-                    if (esEscritorio) ...[
-                      const SizedBox(height: 2),
-                      _construirEslogan(esEscritorio: true),
-                    ],
+                  ),
+                  if (esEscritorio) ...[
+                    const SizedBox(height: 2),
+                    _construirEslogan(esEscritorio: true),
                   ],
-                ),
+                ],
               ),
+            ),
 
-              // En escritorio, el buscador se integra en la misma fila superior
-              if (esEscritorio) ...[
-                const SizedBox(width: 16),
-                SizedBox(
-                  width: 340,
-                  child: _construirCampoBusqueda(),
-                ),
-                const SizedBox(width: 16),
-              ],
-
-              // Indicador visual de carrito
-              _construirIndicadorCotizacion(context),
+            // En escritorio, el buscador se integra en la misma fila superior
+            if (esEscritorio) ...[
+              const SizedBox(width: 16),
+              SizedBox(
+                width: 340,
+                child: _construirCampoBusqueda(),
+              ),
+              const SizedBox(width: 16),
             ],
-          ),
 
-          // En móvil, el subtítulo y el buscador ocupan todo el ancho debajo
-          if (!esEscritorio) ...[
-            const SizedBox(height: 8),
-            _construirEslogan(esEscritorio: false),
-            const SizedBox(height: 10),
-            _construirCampoBusqueda(),
+            // Indicador visual de carrito
+            _construirIndicadorCotizacion(context),
           ],
+        ),
+
+        // En móvil, el subtítulo y el buscador ocupan todo el ancho debajo
+        if (!esEscritorio) ...[
+          const SizedBox(height: 8),
+          _construirEslogan(esEscritorio: false),
+          const SizedBox(height: 10),
+          _construirCampoBusqueda(),
         ],
-      ),
+      ],
     );
   }
 
@@ -1329,25 +1301,25 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
         Padding(
           padding: EdgeInsets.only(top: esEscritorio ? 0 : 6),
           child: Container(
-            width: 6,
-            height: 6,
+            width: 5,
+            height: 5,
             decoration: const BoxDecoration(
-              color: Color(0xFFD98496),
+              color: _doradoElegante,
               shape: BoxShape.circle,
             ),
           ),
         ),
-        const SizedBox(width: 6),
+        const SizedBox(width: 7),
         Expanded(
           child: Text(
             'Accesorios, grabados láser y regalos personalizados',
             maxLines: esEscritorio ? 1 : 2,
             overflow:
                 esEscritorio ? TextOverflow.ellipsis : TextOverflow.visible,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12.5,
               fontWeight: FontWeight.w500,
-              color: _grisTexto,
+              color: _champan.withValues(alpha: 0.88),
               height: 1.25,
             ),
           ),
@@ -1358,30 +1330,31 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
 
   Widget _construirCampoBusqueda() {
     return SizedBox(
-      height: 46,
+      height: 44,
       child: TextField(
         controller: _buscarCtrl,
         onChanged: _filtrarProductos,
         style: const TextStyle(
-          fontSize: 14.5,
-          color: _negroElegante,
+          fontSize: 14,
+          color: _blanco,
         ),
+        cursorColor: _doradoElegante,
         decoration: InputDecoration(
-          hintText: 'Buscar pulseras, collares, regalos, detalles...',
-          hintStyle: const TextStyle(
-            color: _grisTexto,
+          hintText: 'Buscar pulseras, collares, grabados, regalos...',
+          hintStyle: TextStyle(
+            color: _champan.withValues(alpha: 0.58),
             fontSize: 13.5,
           ),
           prefixIcon: const Icon(
             Icons.search_rounded,
-            color: _rojoMarca,
-            size: 22,
+            color: _doradoElegante,
+            size: 20,
           ),
           suffixIcon: _buscarCtrl.text.isNotEmpty
               ? IconButton(
-                  icon: const Icon(
+                  icon: Icon(
                     Icons.cancel_rounded,
-                    color: _grisTexto,
+                    color: _champan.withValues(alpha: 0.75),
                     size: 19,
                   ),
                   tooltip: 'Limpiar búsqueda',
@@ -1392,20 +1365,22 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
                 )
               : null,
           filled: true,
-          fillColor: _blanco,
+          fillColor: _negroSuperficie,
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 16,
             vertical: 0,
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: _bordeSuave),
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(
+              color: _doradoElegante.withValues(alpha: 0.28),
+            ),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(12),
             borderSide: const BorderSide(
-              color: _rojoMarca,
-              width: 1.6,
+              color: _doradoElegante,
+              width: 1.5,
             ),
           ),
         ),
@@ -1418,23 +1393,15 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
       color: Colors.transparent,
       child: InkWell(
         onTap: _mostrarModalCarrito,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [_rojoMarca, _rojoSuave],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+            color: _negroSuperficie,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: _doradoElegante.withValues(alpha: 0.55),
             ),
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                color: _rojoMarca.withValues(alpha: 0.22),
-                blurRadius: 8,
-                offset: const Offset(0, 3),
-              ),
-            ],
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -1444,7 +1411,7 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
                 children: [
                   const Icon(
                     Icons.shopping_bag_outlined,
-                    color: _blanco,
+                    color: _doradoElegante,
                     size: 21,
                   ),
                   Positioned(
@@ -1456,13 +1423,13 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
                         vertical: 1,
                       ),
                       decoration: BoxDecoration(
-                        color: _blanco,
+                        color: _doradoElegante,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
                         '$_totalUnidadesCarrito',
                         style: const TextStyle(
-                          color: _rojoMarca,
+                          color: _negroPortada,
                           fontSize: 10,
                           fontWeight: FontWeight.w900,
                         ),
@@ -1487,188 +1454,236 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
     );
   }
 
-  Widget _construirBannerBienvenida({required bool esEscritorio}) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [
-            Color(0xFFFFEFF3),
-            Color(0xFFFFF7F9),
-            _blanco,
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFF3D7DF), width: 1.2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          // Acentos geométricos sutiles en rosa suave
-          Positioned(
-            right: -28,
-            top: -28,
-            child: Container(
-              width: 140,
-              height: 140,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE8A4B3).withValues(alpha: 0.16),
-                shape: BoxShape.circle,
-              ),
-            ),
-          ),
-          Positioned(
-            right: 54,
-            bottom: -40,
-            child: Container(
-              width: 100,
-              height: 100,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE8A4B3).withValues(alpha: 0.10),
-                shape: BoxShape.circle,
-              ),
-            ),
-          ),
+  Widget _construirBannerBienvenida({
+    required bool esEscritorio,
+    required double paddingHorizontal,
+  }) {
+    final imagenHero = Image.asset(
+      'assets/images/banner_pulsera_premium.png',
+      fit: BoxFit.cover,
+      alignment: Alignment.center,
+      errorBuilder: (_, __, ___) => Container(color: _negroPortada),
+    );
 
-          Padding(
-            padding: EdgeInsets.all(esEscritorio ? 30 : 20),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFCE7EC),
-                          borderRadius: BorderRadius.circular(30),
-                          border: Border.all(
-                            color: const Color(0xFFF3D0D9),
-                          ),
-                        ),
-                        child: const Text(
-                          'ACCESORIOS · GRABADOS LÁSER · REGALOS',
-                          style: TextStyle(
-                            color: _negroElegante,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 10.5,
-                            letterSpacing: 0.8,
-                          ),
-                        ),
+    if (esEscritorio) {
+      return Container(
+        width: double.infinity,
+        color: _negroPortada,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1280),
+            child: SizedBox(
+              height: 440,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    flex: 5,
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        paddingHorizontal,
+                        36,
+                        24,
+                        36,
                       ),
-                      const SizedBox(height: 14),
-                      Text(
-                        'Detalles que hacen la diferencia',
-                        style: TextStyle(
-                          color: _negroElegante,
-                          fontSize: esEscritorio ? 30 : 22,
-                          fontWeight: FontWeight.w900,
-                          height: 1.15,
-                          letterSpacing: -0.3,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        'Accesorios, grabados láser y regalos personalizados para cada ocasión',
-                        style: TextStyle(
-                          color: _grisTexto,
-                          fontSize: esEscritorio ? 15 : 13.5,
-                          height: 1.45,
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-                      ElevatedButton.icon(
-                        onPressed: _irAProductos,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _negroElegante,
-                          foregroundColor: _blanco,
-                          elevation: 0,
-                          padding: EdgeInsets.symmetric(
-                            horizontal: esEscritorio ? 22 : 18,
-                            vertical: esEscritorio ? 14 : 12,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'ACCESORIOS AYALA · COLECCIÓN',
+                            style: TextStyle(
+                              color: _doradoElegante,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 11.5,
+                              letterSpacing: 2.0,
+                            ),
                           ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Detalles que cuentan tu historia.',
+                            style: TextStyle(
+                              color: _blanco,
+                              fontSize: 40,
+                              fontWeight: FontWeight.w900,
+                              height: 1.1,
+                              letterSpacing: -0.5,
+                            ),
                           ),
-                        ),
-                        icon: const Icon(Icons.arrow_downward_rounded, size: 18),
-                        label: const Text(
-                          'Explorar productos',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
+                          const SizedBox(height: 14),
+                          const Text(
+                            'Piezas especiales para personas y momentos inolvidables.',
+                            style: TextStyle(
+                              color: _champan,
+                              fontSize: 16,
+                              height: 1.45,
+                            ),
                           ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (esEscritorio) ...[
-                  const SizedBox(width: 24),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 16,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _blanco,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: const Color(0xFFF3D7DF)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.03),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.auto_awesome_outlined,
-                          color: _negroElegante,
-                          size: 26,
-                        ),
-                        SizedBox(width: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Hecho a tu medida',
+                          const SizedBox(height: 28),
+                          ElevatedButton(
+                            onPressed: _irAProductos,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _doradoElegante,
+                              foregroundColor: _negroPortada,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 28,
+                                vertical: 16,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            child: const Text(
+                              'EXPLORAR COLECCIONES',
                               style: TextStyle(
-                                color: _negroElegante,
                                 fontWeight: FontWeight.w800,
-                                fontSize: 14,
+                                fontSize: 13,
+                                letterSpacing: 1.1,
                               ),
                             ),
-                            SizedBox(height: 2),
-                            Text(
-                              'Precios en Lempiras (L.)',
-                              style: TextStyle(
-                                color: _grisTexto,
-                                fontSize: 12,
-                              ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 6,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        imagenHero,
+                        // Degradado lateral para fundir la fotografía con el fondo #0B0B0B
+                        const DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.centerLeft,
+                              end: Alignment.centerRight,
+                              colors: [
+                                _negroPortada,
+                                Color(0x990B0B0B),
+                                Colors.transparent,
+                              ],
+                              stops: [0.0, 0.22, 0.55],
                             ),
-                          ],
+                          ),
+                        ),
+                        const DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.bottomCenter,
+                              end: Alignment.topCenter,
+                              colors: [
+                                _negroPortada,
+                                Colors.transparent,
+                              ],
+                              stops: [0.0, 0.18],
+                            ),
+                          ),
                         ),
                       ],
                     ),
                   ),
                 ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Composición móvil: fotografía protagonista arriba y texto debajo sobre #0B0B0B
+    return Container(
+      width: double.infinity,
+      color: _negroPortada,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            height: 240,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                imagenHero,
+                const DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                      colors: [
+                        _negroPortada,
+                        Colors.transparent,
+                      ],
+                      stops: [0.0, 0.35],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+              paddingHorizontal,
+              8,
+              paddingHorizontal,
+              28,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'ACCESORIOS AYALA · COLECCIÓN',
+                  style: TextStyle(
+                    color: _doradoElegante,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 10.5,
+                    letterSpacing: 1.8,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Detalles que cuentan tu historia.',
+                  style: TextStyle(
+                    color: _blanco,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w900,
+                    height: 1.12,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Piezas especiales para personas y momentos inolvidables.',
+                  style: TextStyle(
+                    color: _champan,
+                    fontSize: 14.5,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _irAProductos,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _doradoElegante,
+                      foregroundColor: _negroPortada,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: const Text(
+                      'EXPLORAR COLECCIONES',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
