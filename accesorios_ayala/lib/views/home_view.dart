@@ -7,6 +7,7 @@ import '../controllers/auth_controller.dart';
 import '../models/cliente.dart';
 import 'lista_clientes_view.dart';
 import 'lista_productos_view.dart';
+import 'gestion_categorias_view.dart';
 import 'pedidos_view.dart';
 import 'seleccionar_cliente_view.dart';
 import 'seleccionar_productos_view.dart';
@@ -15,6 +16,7 @@ import 'resumen_ventas_view.dart';
 enum _AccionMenu {
   inicio,
   productos,
+  catalogo,
   recibos,
   ventas,
   clientes,
@@ -42,7 +44,7 @@ class HomeView extends StatefulWidget {
 }
 
 class _HomeViewState extends State<HomeView> {
-  static const double _breakpointMenuEscritorio = 1040;
+  static const double _breakpointMenuEscritorio = 1180;
   static const Color _rojoMarca = Color(0xFFD9232E);
   static const Color _rosaSuave = Color(0xFFFFF1F2);
   static const Color _fondoClaro = Color(0xFFFAFAFA);
@@ -60,6 +62,11 @@ class _HomeViewState extends State<HomeView> {
       accion: _AccionMenu.productos,
       etiqueta: 'Productos',
       icono: Icons.shopping_bag_outlined,
+    ),
+    _OpcionMenu(
+      accion: _AccionMenu.catalogo,
+      etiqueta: 'Catálogo',
+      icono: Icons.storefront_outlined,
     ),
     _OpcionMenu(
       accion: _AccionMenu.recibos,
@@ -164,6 +171,13 @@ class _HomeViewState extends State<HomeView> {
           });
         }
         return;
+      case _AccionMenu.catalogo:
+        if (_seccionActiva != _AccionMenu.catalogo) {
+          setState(() {
+            _seccionActiva = _AccionMenu.catalogo;
+          });
+        }
+        return;
       case _AccionMenu.recibos:
         if (_seccionActiva != _AccionMenu.recibos) {
           setState(() {
@@ -220,8 +234,8 @@ class _HomeViewState extends State<HomeView> {
         shape: const Border(bottom: BorderSide(color: _bordeSuave, width: 1)),
         title: Row(
           children: [
-            const Icon(Icons.diamond_outlined, color: _rojoMarca, size: 22),
-            const SizedBox(width: 10),
+            const Icon(Icons.diamond_outlined, color: _rojoMarca, size: 21),
+            const SizedBox(width: 8),
             if (esMenuEscritorio) ...[
               const Text(
                 'Accesorios Ayala',
@@ -229,20 +243,21 @@ class _HomeViewState extends State<HomeView> {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: _rojoMarca,
-                  fontSize: 20,
+                  fontSize: 18.5,
                   fontWeight: FontWeight.w800,
                   letterSpacing: 0.2,
                 ),
               ),
-              const SizedBox(width: 28),
+              const SizedBox(width: 16),
               Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
+                child: Align(
+                  alignment: Alignment.centerLeft,
                   child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: _opcionesNavegacion
                         .map(
                           (opcion) => Padding(
-                            padding: const EdgeInsets.only(right: 6),
+                            padding: const EdgeInsets.only(right: 4),
                             child: _construirBotonMenuEscritorio(
                               opcion: opcion,
                               context: context,
@@ -276,11 +291,11 @@ class _HomeViewState extends State<HomeView> {
                     child: Tooltip(
                       message: correoActivo,
                       child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 220),
+                        constraints: const BoxConstraints(maxWidth: 165),
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
+                            horizontal: 8,
+                            vertical: 5,
                           ),
                           decoration: BoxDecoration(
                             color: _rosaSuave.withValues(alpha: 0.75),
@@ -295,14 +310,14 @@ class _HomeViewState extends State<HomeView> {
                                 size: 15,
                                 color: _rojoMarca,
                               ),
-                              const SizedBox(width: 6),
+                              const SizedBox(width: 5),
                               Flexible(
                                 child: Text(
                                   correoActivo,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
-                                    fontSize: 12.5,
+                                    fontSize: 12,
                                     color: _grisTexto,
                                     fontWeight: FontWeight.w600,
                                   ),
@@ -314,7 +329,7 @@ class _HomeViewState extends State<HomeView> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 4),
                 ],
                 Padding(
                   padding: const EdgeInsets.only(right: 8),
@@ -374,6 +389,8 @@ class _HomeViewState extends State<HomeView> {
                             const ResumenVentasView(integrado: true)
                           else if (_seccionActiva == _AccionMenu.productos)
                             const ListaProductosView(integrado: true)
+                          else if (_seccionActiva == _AccionMenu.catalogo)
+                            const GestionCategoriasView(integrado: true)
                           else if (_seccionActiva == _AccionMenu.clientes)
                             const ListaClientesView(integrado: true)
                           else if (_seccionActiva == _AccionMenu.pedidos)
@@ -452,13 +469,13 @@ class _HomeViewState extends State<HomeView> {
       onPressed: () => _manejarAccionMenu(opcion.accion, context),
       icon: Icon(
         opcion.icono,
-        size: 18,
+        size: 17,
         color: estaActiva ? _rojoMarca : _grisTexto,
       ),
       label: Text(
         opcion.etiqueta,
         style: TextStyle(
-          fontSize: 14,
+          fontSize: 13.5,
           fontWeight: estaActiva ? FontWeight.w700 : FontWeight.w600,
           color: estaActiva ? _rojoMarca : _negroElegante,
         ),
@@ -466,7 +483,9 @@ class _HomeViewState extends State<HomeView> {
       style: TextButton.styleFrom(
         backgroundColor: estaActiva ? _rosaSuave : Colors.transparent,
         foregroundColor: _rojoMarca,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
           side: BorderSide(
