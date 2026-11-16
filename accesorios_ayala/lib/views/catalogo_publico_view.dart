@@ -3,8 +3,29 @@ import 'package:url_launcher/url_launcher.dart';
 import '../controllers/producto_controller.dart';
 import '../models/producto.dart';
 
+/// Devuelve los productos que deben mostrarse en el catálogo público:
+/// solo los que tienen `visibleCatalogo == true` y, si [consulta] no está
+/// vacía, cuyo nombre o descripción la contengan (sin distinguir mayúsculas).
+/// Conserva el orden original y no modifica la lista recibida.
+List<Producto> filtrarProductosCatalogo(
+  List<Producto> productos,
+  String consulta,
+) {
+  final texto = consulta.trim().toLowerCase();
+  return productos.where((p) {
+    if (!p.visibleCatalogo) return false;
+    if (texto.isEmpty) return true;
+    return p.nombre.toLowerCase().contains(texto) ||
+        p.descripcion.toLowerCase().contains(texto);
+  }).toList();
+}
+
 class CatalogoPublicoView extends StatefulWidget {
-  const CatalogoPublicoView({super.key});
+  /// Inyección opcional para pruebas. Si es `null` se usa
+  /// [ProductoController.cargarProductos].
+  final Future<List<Producto>> Function()? cargarProductos;
+
+  const CatalogoPublicoView({super.key, this.cargarProductos});
 
   @override
   State<CatalogoPublicoView> createState() => _CatalogoPublicoViewState();
@@ -34,6 +55,8 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
   List<Producto> _productosFiltrados = [];
   bool _cargando = true;
   String? _errorCarga;
+
+  bool get _hayProductosVisibles => _productos.any((p) => p.visibleCatalogo);
 
   // Estado local en memoria para el carrito de compras (identificado por ID)
   final Map<String, Producto> _productosCarrito = {};
@@ -92,20 +115,16 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
     });
 
     try {
-      final lista = await ProductoController.cargarProductos();
+      final lista = await (widget.cargarProductos ??
+          ProductoController.cargarProductos)();
       if (!mounted) return;
 
-      final texto = _buscarCtrl.text.trim().toLowerCase();
       setState(() {
         _productos = lista;
-        if (texto.isEmpty) {
-          _productosFiltrados = List<Producto>.from(_productos);
-        } else {
-          _productosFiltrados = _productos.where((p) {
-            return p.nombre.toLowerCase().contains(texto) ||
-                p.descripcion.toLowerCase().contains(texto);
-          }).toList();
-        }
+        _productosFiltrados = filtrarProductosCatalogo(
+          _productos,
+          _buscarCtrl.text,
+        );
         _cargando = false;
       });
     } catch (e) {
@@ -118,16 +137,8 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
   }
 
   void _filtrarProductos(String consulta) {
-    final texto = consulta.trim().toLowerCase();
     setState(() {
-      if (texto.isEmpty) {
-        _productosFiltrados = List<Producto>.from(_productos);
-      } else {
-        _productosFiltrados = _productos.where((p) {
-          return p.nombre.toLowerCase().contains(texto) ||
-              p.descripcion.toLowerCase().contains(texto);
-        }).toList();
-      }
+      _productosFiltrados = filtrarProductosCatalogo(_productos, consulta);
     });
   }
 
@@ -1152,7 +1163,7 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
                                 child: _construirEstadoError(),
                               ),
                             )
-                          else if (_productos.isEmpty)
+                          else if (!_hayProductosVisibles)
                             SliverToBoxAdapter(
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(
