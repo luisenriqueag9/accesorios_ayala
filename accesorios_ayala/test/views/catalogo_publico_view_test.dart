@@ -1,3 +1,4 @@
+import 'package:accesorios_ayala/models/categoria.dart';
 import 'package:accesorios_ayala/models/producto.dart';
 import 'package:accesorios_ayala/views/catalogo_publico_view.dart';
 import 'package:flutter/material.dart';
@@ -30,17 +31,38 @@ final _productos = <Producto>[
   _p('p4', 'Taza Grabada', descripcion: 'Grabado láser personalizado'),
 ];
 
+Categoria _c(
+  String id,
+  String nombre, {
+  int orden = 0,
+  bool visible = true,
+}) => Categoria(id: id, nombre: nombre, orden: orden, visible: visible);
+
+final _categorias = <Categoria>[
+  _c('c3', 'Tazas', orden: 3),
+  _c('c_oculta', 'Oculta', orden: 0, visible: false),
+  _c('c1', 'Pulseras', orden: 1),
+  _c('c2b', 'Collares', orden: 2),
+  _c('c2a', 'Aretes', orden: 2),
+];
+
 Future<void> _montar(
   WidgetTester tester,
-  Future<List<Producto>> Function() cargar,
-) async {
+  Future<List<Producto>> Function() cargar, {
+  Future<List<Categoria>> Function()? cargarCategorias,
+}) async {
   tester.view.physicalSize = const Size(1400, 3200);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
   await tester.pumpWidget(
-    MaterialApp(home: CatalogoPublicoView(cargarProductos: cargar)),
+    MaterialApp(
+      home: CatalogoPublicoView(
+        cargarProductos: cargar,
+        cargarCategorias: cargarCategorias ?? () async => const [],
+      ),
+    ),
   );
   // Evita pumpAndSettle por posibles animaciones continuas del diseño.
   await tester.pump();
@@ -192,6 +214,92 @@ void main() {
         expect(find.text('Taza Grabada'), findsOneWidget);
         expect(find.text('Llavero Secreto'), findsNothing);
         expect(fuente.map((p) => p.id), ['p1', 'p2', 'p3', 'p4']);
+      },
+    );
+  });
+
+  group('prepararCategoriasCatalogo', () {
+    test(
+      'excluye ocultas, respeta orden administrativo y no modifica la lista original',
+      () {
+        final original = List<Categoria>.of(_categorias);
+        final resultado = prepararCategoriasCatalogo(_categorias);
+
+        expect(resultado.map((c) => c.id), ['c1', 'c2a', 'c2b', 'c3']);
+        expect(_categorias.map((c) => c.id), original.map((c) => c.id));
+      },
+    );
+  });
+
+  group('CatalogoPublicoView - carga independiente de categorías', () {
+    testWidgets(
+      'carga categorías sin alterar productos, búsqueda, visibilidad ni carrito',
+      (tester) async {
+        var llamadasCategorias = 0;
+        await _montar(
+          tester,
+          () async => _productos,
+          cargarCategorias: () async {
+            llamadasCategorias++;
+            return _categorias;
+          },
+        );
+
+        expect(llamadasCategorias, 1);
+        expect(find.text('Pulsera Dorada'), findsOneWidget);
+        expect(find.text('Collar Perla'), findsOneWidget);
+        expect(find.text('Taza Grabada'), findsOneWidget);
+        expect(find.text('Llavero Secreto'), findsNothing);
+
+        await tester.tap(find.byIcon(Icons.add_shopping_cart_rounded).first);
+        await tester.pump();
+        expect(
+          find.text('"Pulsera Dorada" se agregó al carrito.'),
+          findsOneWidget,
+        );
+
+        await _buscar(tester, 'perlas');
+        expect(find.text('Collar Perla'), findsOneWidget);
+        expect(find.text('Pulsera Dorada'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'muestra los productos normalmente aunque falle la carga de categorías',
+      (tester) async {
+        await _montar(
+          tester,
+          () async => _productos,
+          cargarCategorias: () => Future.error(Exception('error categorías')),
+        );
+
+        expect(find.text('Pulsera Dorada'), findsOneWidget);
+        expect(find.text('Collar Perla'), findsOneWidget);
+        expect(find.text('Taza Grabada'), findsOneWidget);
+        expect(find.text('Llavero Secreto'), findsNothing);
+        expect(find.text('3 creaciones'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'ejecuta la carga de categorías aunque falle la carga de productos',
+      (tester) async {
+        var llamadasCategorias = 0;
+        await _montar(
+          tester,
+          () => Future.error(Exception('error productos')),
+          cargarCategorias: () async {
+            llamadasCategorias++;
+            return _categorias;
+          },
+        );
+
+        expect(llamadasCategorias, 1);
+        expect(
+          find.text('No se pudieron cargar los productos en este momento.'),
+          findsOneWidget,
+        );
+        expect(find.text('Reintentar'), findsOneWidget);
       },
     );
   });

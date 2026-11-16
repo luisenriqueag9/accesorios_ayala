@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../controllers/categoria_controller.dart';
 import '../controllers/producto_controller.dart';
+import '../models/categoria.dart';
 import '../models/producto.dart';
 
 /// Devuelve los productos que deben mostrarse en el catálogo público:
@@ -20,12 +22,37 @@ List<Producto> filtrarProductosCatalogo(
   }).toList();
 }
 
+/// Devuelve las categorías visibles ordenadas según el orden administrativo
+/// (`orden`, `nombre` sin distinguir mayúsculas e `id`), sin modificar la lista
+/// recibida.
+List<Categoria> prepararCategoriasCatalogo(List<Categoria> categorias) {
+  final visibles = categorias.where((c) => c.visible).toList();
+  visibles.sort((a, b) {
+    final ordenCmp = a.orden.compareTo(b.orden);
+    if (ordenCmp != 0) return ordenCmp;
+
+    final nombreCmp = a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase());
+    if (nombreCmp != 0) return nombreCmp;
+
+    return a.id.compareTo(b.id);
+  });
+  return visibles;
+}
+
 class CatalogoPublicoView extends StatefulWidget {
   /// Inyección opcional para pruebas. Si es `null` se usa
   /// [ProductoController.cargarProductos].
   final Future<List<Producto>> Function()? cargarProductos;
 
-  const CatalogoPublicoView({super.key, this.cargarProductos});
+  /// Inyección opcional para pruebas. Si es `null` se usa
+  /// [CategoriaController.cargarCategorias] con `soloVisibles: true`.
+  final Future<List<Categoria>> Function()? cargarCategorias;
+
+  const CatalogoPublicoView({
+    super.key,
+    this.cargarProductos,
+    this.cargarCategorias,
+  });
 
   @override
   State<CatalogoPublicoView> createState() => _CatalogoPublicoViewState();
@@ -56,6 +83,14 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
   bool _cargando = true;
   String? _errorCarga;
 
+  // Estado independiente para categorías visibles (sin filtros visuales en esta etapa).
+  // ignore: unused_field
+  List<Categoria> _categorias = [];
+  // ignore: unused_field
+  bool _cargandoCategorias = true;
+  // ignore: unused_field
+  String? _errorCategorias;
+
   bool get _hayProductosVisibles => _productos.any((p) => p.visibleCatalogo);
 
   // Estado local en memoria para el carrito de compras (identificado por ID)
@@ -80,6 +115,7 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
   void initState() {
     super.initState();
     _cargarProductos();
+    _cargarCategorias();
   }
 
   @override
@@ -132,6 +168,33 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
       setState(() {
         _errorCarga = 'No se pudieron cargar los productos en este momento.';
         _cargando = false;
+      });
+    }
+  }
+
+  /// Carga (o reintenta cargar) las categorías visibles de forma independiente
+  /// a los productos, manteniendo su propio estado de carga y error.
+  Future<void> _cargarCategorias() async {
+    setState(() {
+      _cargandoCategorias = true;
+      _errorCategorias = null;
+    });
+
+    try {
+      final lista = await (widget.cargarCategorias ??
+          () => CategoriaController.cargarCategorias(soloVisibles: true))();
+      if (!mounted) return;
+
+      setState(() {
+        _categorias = prepararCategoriasCatalogo(lista);
+        _cargandoCategorias = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorCategorias =
+            'No se pudieron cargar las categorías en este momento.';
+        _cargandoCategorias = false;
       });
     }
   }
