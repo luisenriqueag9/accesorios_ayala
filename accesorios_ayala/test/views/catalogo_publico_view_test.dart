@@ -538,4 +538,174 @@ void main() {
       },
     );
   });
+
+  group('CatalogoPublicoView - carrusel de banner (Etapa 5D.5.4.2)', () {
+    final configCarrusel3 = BannerConfig(
+      activo: true,
+      modo: ModoBannerCatalogo.carrusel,
+      intervaloSegundos: 2,
+      carrusel: const [
+        BannerCarruselItem(
+          id: 'c2',
+          url: 'https://cdn.ejemplo.com/banner-2.jpg',
+          orden: 2,
+        ),
+        BannerCarruselItem(
+          id: 'c1',
+          url: 'https://cdn.ejemplo.com/banner-1.jpg',
+          orden: 1,
+        ),
+        BannerCarruselItem(
+          id: 'c3',
+          url: 'https://cdn.ejemplo.com/banner-3.jpg',
+          orden: 3,
+        ),
+      ],
+    );
+
+    testWidgets(
+      'muestra PageView con varias imágenes, rota según intervalo y regresa a la primera',
+      (tester) async {
+        await _montar(
+          tester,
+          () async => _productos,
+          cargarBanner: () async => configCarrusel3,
+        );
+
+        final pageViewFinder = find.byType(PageView);
+        expect(pageViewFinder, findsOneWidget);
+
+        final pageView = tester.widget<PageView>(pageViewFinder);
+        final controller = pageView.controller!;
+        expect(controller.page?.round(), 0);
+
+        // Verifica que la primera diapositiva corresponde a orden 1.
+        expect(
+          find.descendant(
+            of: pageViewFinder,
+            matching: find.byWidgetPredicate(
+              (w) =>
+                  w is Image &&
+                  w.image is NetworkImage &&
+                  (w.image as NetworkImage).url ==
+                      'https://cdn.ejemplo.com/banner-1.jpg',
+            ),
+          ),
+          findsOneWidget,
+        );
+
+        // Avanza al índice 1 tras 2 segundos.
+        await tester.pump(const Duration(seconds: 2));
+        await tester.pump(const Duration(milliseconds: 600));
+        expect(controller.page?.round(), 1);
+
+        // Avanza al índice 2 tras otros 2 segundos.
+        await tester.pump(const Duration(seconds: 2));
+        await tester.pump(const Duration(milliseconds: 600));
+        expect(controller.page?.round(), 2);
+
+        // Regresa al índice 0 después de la última imagen.
+        await tester.pump(const Duration(seconds: 2));
+        await tester.pump(const Duration(milliseconds: 600));
+        expect(controller.page?.round(), 0);
+
+        // Desmonta para verificar que el temporizador se cancele limpiamente.
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+
+    testWidgets('carrusel con una sola imagen no rota automáticamente', (
+      tester,
+    ) async {
+      await _montar(
+        tester,
+        () async => _productos,
+        cargarBanner: () async => BannerConfig(
+          activo: true,
+          modo: ModoBannerCatalogo.carrusel,
+          intervaloSegundos: 2,
+          carrusel: const [
+            BannerCarruselItem(
+              id: 'unica',
+              url: 'https://cdn.ejemplo.com/unica.jpg',
+              orden: 0,
+            ),
+          ],
+        ),
+      );
+
+      final pageViewFinder = find.byType(PageView);
+      expect(pageViewFinder, findsOneWidget);
+      final controller = tester.widget<PageView>(pageViewFinder).controller!;
+      expect(controller.page?.round(), 0);
+
+      await tester.pump(const Duration(seconds: 6));
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(controller.page?.round(), 0);
+    });
+
+    testWidgets(
+      'carrusel desactivado o sin imágenes válidas muestra el respaldo estático',
+      (tester) async {
+        await _montar(
+          tester,
+          () async => _productos,
+          cargarBanner: () async => BannerConfig(
+            activo: false,
+            modo: ModoBannerCatalogo.carrusel,
+            carrusel: configCarrusel3.carrusel,
+          ),
+        );
+
+        expect(find.byType(PageView), findsNothing);
+        expect(
+          find.byWidgetPredicate(
+            (w) =>
+                w is Image &&
+                w.image is AssetImage &&
+                (w.image as AssetImage).assetName ==
+                    'assets/images/banner_pulsera_premium.png',
+          ),
+          findsOneWidget,
+        );
+
+        await _montar(
+          tester,
+          () async => _productos,
+          cargarBanner: () async => BannerConfig(
+            activo: true,
+            modo: ModoBannerCatalogo.carrusel,
+            carrusel: const [],
+          ),
+        );
+
+        expect(find.byType(PageView), findsNothing);
+        expect(
+          find.byWidgetPredicate(
+            (w) =>
+                w is Image &&
+                w.image is AssetImage &&
+                (w.image as AssetImage).assetName ==
+                    'assets/images/banner_pulsera_premium.png',
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets('cancela el temporizador del carrusel al desmontar la vista', (
+      tester,
+    ) async {
+      await _montar(
+        tester,
+        () async => _productos,
+        cargarBanner: () async => configCarrusel3,
+      );
+
+      expect(find.byType(PageView), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 5));
+    });
+  });
 }

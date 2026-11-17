@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../controllers/banner_controller.dart';
@@ -106,6 +108,10 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
   BannerConfig _bannerConfig = BannerConfig.inicial();
   // ignore: unused_field
   bool _cargandoBanner = true;
+  PageController? _carruselPageCtrl;
+  Timer? _timerCarrusel;
+  int _indiceCarruselActual = 0;
+  bool _animandoCarrusel = false;
 
   bool get _hayProductosVisibles => _productos.any((p) => p.visibleCatalogo);
 
@@ -137,6 +143,10 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
 
   @override
   void dispose() {
+    _detenerTimerCarrusel();
+    final controller = _carruselPageCtrl;
+    _carruselPageCtrl = null;
+    controller?.dispose();
     _buscarCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
@@ -219,6 +229,75 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
     }
   }
 
+  List<BannerCarruselItem> get _itemsCarruselActivos {
+    if (!_bannerConfig.debeMostrarse ||
+        _bannerConfig.modo != ModoBannerCatalogo.carrusel) {
+      return const [];
+    }
+    return _bannerConfig.carrusel
+        .where((item) => item.tieneUrlValida)
+        .toList();
+  }
+
+  void _detenerTimerCarrusel() {
+    _timerCarrusel?.cancel();
+    _timerCarrusel = null;
+  }
+
+  void _configurarCarrusel() {
+    _detenerTimerCarrusel();
+    _indiceCarruselActual = 0;
+
+    final items = _itemsCarruselActivos;
+    if (items.isEmpty) {
+      final controllerAnterior = _carruselPageCtrl;
+      _carruselPageCtrl = null;
+      _animandoCarrusel = false;
+      controllerAnterior?.dispose();
+      return;
+    }
+
+    if (_carruselPageCtrl == null) {
+      _carruselPageCtrl = PageController(initialPage: 0);
+      _animandoCarrusel = false;
+    } else if (_carruselPageCtrl!.hasClients) {
+      _carruselPageCtrl!.jumpToPage(0);
+    }
+
+    if (items.length <= 1) return;
+
+    _timerCarrusel = Timer.periodic(
+      Duration(seconds: _bannerConfig.intervaloSegundos),
+      (_) => _avanzarCarrusel(),
+    );
+  }
+
+  Future<void> _avanzarCarrusel() async {
+    if (!mounted || _animandoCarrusel) return;
+    final items = _itemsCarruselActivos;
+    final controller = _carruselPageCtrl;
+    if (items.length <= 1 || controller == null || !controller.hasClients) {
+      return;
+    }
+
+    final siguiente = (_indiceCarruselActual + 1) % items.length;
+    _animandoCarrusel = true;
+    try {
+      await controller.animateToPage(
+        siguiente,
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeInOut,
+      );
+      if (!mounted || !identical(controller, _carruselPageCtrl)) return;
+    } catch (_) {
+      // Ignora interrupciones si el controlador se desmontó durante la animación.
+    } finally {
+      if (identical(controller, _carruselPageCtrl)) {
+        _animandoCarrusel = false;
+      }
+    }
+  }
+
   Future<void> _cargarBanner() async {
     try {
       final config = await (widget.cargarBanner ??
@@ -229,12 +308,14 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
         _bannerConfig = config.debeMostrarse ? config : BannerConfig.inicial();
         _cargandoBanner = false;
       });
+      _configurarCarrusel();
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _bannerConfig = BannerConfig.inicial();
         _cargandoBanner = false;
       });
+      _configurarCarrusel();
     }
   }
 
@@ -1595,27 +1676,56 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
   }
 
   Widget _construirMediaBanner(Widget imagenRespaldo) {
-    final urlImagen = _bannerConfig.imagenUrl?.trim();
-    final mostrarImagenFija =
-        _bannerConfig.debeMostrarse &&
-        _bannerConfig.modo == ModoBannerCatalogo.imagen &&
-        urlImagen != null &&
-        urlImagen.isNotEmpty;
-
-    if (!mostrarImagenFija) {
+    if (!_bannerConfig.debeMostrarse) {
       return imagenRespaldo;
     }
 
-    return Image.network(
-      urlImagen,
-      fit: BoxFit.cover,
-      alignment: Alignment.center,
-      loadingBuilder: (context, child, loadingProgress) {
-        if (loadingProgress == null) return child;
+    if (_bannerConfig.modo == ModoBannerCatalogo.imagen) {
+      final urlImagen = _bannerConfig.imagenUrl?.trim();
+      if (urlImagen == null || urlImagen.isEmpty) {
         return imagenRespaldo;
-      },
-      errorBuilder: (_, __, ___) => imagenRespaldo,
-    );
+      }
+
+      return Image.network(
+        urlImagen,
+        fit: BoxFit.cover,
+        alignment: Alignment.center,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return imagenRespaldo;
+        },
+        errorBuilder: (_, __, ___) => imagenRespaldo,
+      );
+    }
+
+    if (_bannerConfig.modo == ModoBannerCatalogo.carrusel) {
+      final items = _itemsCarruselActivos;
+      if (items.isEmpty) {
+        return imagenRespaldo;
+      }
+
+      return PageView.builder(
+        controller: _carruselPageCtrl,
+        itemCount: items.length,
+        onPageChanged: (indice) {
+          _indiceCarruselActual = indice;
+        },
+        itemBuilder: (context, index) {
+          return Image.network(
+            items[index].url,
+            fit: BoxFit.cover,
+            alignment: Alignment.center,
+            loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) return child;
+              return imagenRespaldo;
+            },
+            errorBuilder: (_, __, ___) => imagenRespaldo,
+          );
+        },
+      );
+    }
+
+    return imagenRespaldo;
   }
 
   Widget _construirBannerBienvenida({
