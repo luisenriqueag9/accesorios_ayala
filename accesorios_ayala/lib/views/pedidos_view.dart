@@ -31,11 +31,29 @@ class _OpcionSubmenuPedidos {
   });
 }
 
+class _AlertaPedidoItem {
+  final Pedido pedido;
+  final AlertaEntregaPedido alerta;
+  final int diferenciaDias;
+  final bool esProgramado;
+
+  const _AlertaPedidoItem({
+    required this.pedido,
+    required this.alerta,
+    required this.diferenciaDias,
+    required this.esProgramado,
+  });
+}
+
 class PedidosView extends StatefulWidget {
   final List<Pedido>? pedidos;
   final List<Venta>? facturas;
   final Future<List<Venta>> Function()? onCargarFacturas;
   final Future<Pedido?> Function(String facturaId)? onBuscarPedidoPorFactura;
+
+  /// Fecha de referencia opcional para pruebas deterministas de alertas.
+  /// Si es `null` se utiliza [DateTime.now].
+  final DateTime? fechaReferenciaAlertas;
 
   const PedidosView({
     super.key,
@@ -43,6 +61,7 @@ class PedidosView extends StatefulWidget {
     this.facturas,
     this.onCargarFacturas,
     this.onBuscarPedidoPorFactura,
+    this.fechaReferenciaAlertas,
   });
 
   @override
@@ -486,13 +505,7 @@ class _PedidosViewState extends State<PedidosView> {
           esEscritorio: esEscritorio,
         );
       case _SubseccionPedidos.alertas:
-        return _construirTarjetaInformativa(
-          icono: Icons.notifications_active_outlined,
-          titulo: 'Alertas de pedidos',
-          mensaje:
-              'Aquí podrás consultar los pedidos próximos a vencer o atrasados',
-          esEscritorio: esEscritorio,
-        );
+        return _construirSeccionAlertas(esEscritorio: esEscritorio);
     }
   }
 
@@ -600,6 +613,619 @@ class _PedidosViewState extends State<PedidosView> {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  ({
+    List<_AlertaPedidoItem> urgentes,
+    List<_AlertaPedidoItem> programadas,
+    int atrasados,
+    int hoyOManana,
+    int proximos,
+    int sinFecha,
+  }) _prepararAlertasEntrega() {
+    final referencia = widget.fechaReferenciaAlertas ?? DateTime.now();
+    final refHonduras = referencia.toUtc().subtract(const Duration(hours: 6));
+    final hoyHonduras = DateTime.utc(
+      refHonduras.year,
+      refHonduras.month,
+      refHonduras.day,
+    );
+
+    final urgentes = <_AlertaPedidoItem>[];
+    final programadas = <_AlertaPedidoItem>[];
+    var atrasados = 0;
+    var hoyOManana = 0;
+    var proximos = 0;
+    var sinFecha = 0;
+
+    for (final pedido in pedidos) {
+      final alerta = pedido.calcularAlertaEntrega(referencia: referencia);
+      if (alerta == AlertaEntregaPedido.entregado) continue;
+      if (alerta == AlertaEntregaPedido.sinFecha ||
+          pedido.fechaPrevistaEntrega == null) {
+        sinFecha++;
+        continue;
+      }
+
+      final fechaObjetivo = DateTime.utc(
+        pedido.fechaPrevistaEntrega!.year,
+        pedido.fechaPrevistaEntrega!.month,
+        pedido.fechaPrevistaEntrega!.day,
+      );
+      final diferenciaDias = fechaObjetivo.difference(hoyHonduras).inDays;
+
+      if (alerta == AlertaEntregaPedido.futura && diferenciaDias > 7) {
+        programadas.add(
+          _AlertaPedidoItem(
+            pedido: pedido,
+            alerta: alerta,
+            diferenciaDias: diferenciaDias,
+            esProgramado: true,
+          ),
+        );
+        continue;
+      }
+
+      if (alerta == AlertaEntregaPedido.atrasado) {
+        atrasados++;
+      } else if (alerta == AlertaEntregaPedido.hoy ||
+          alerta == AlertaEntregaPedido.manana) {
+        hoyOManana++;
+      } else {
+        proximos++;
+      }
+
+      urgentes.add(
+        _AlertaPedidoItem(
+          pedido: pedido,
+          alerta: alerta,
+          diferenciaDias: diferenciaDias,
+          esProgramado: false,
+        ),
+      );
+    }
+
+    int compararPorFecha(_AlertaPedidoItem a, _AlertaPedidoItem b) {
+      final fechaCmp = a.pedido.fechaPrevistaEntrega!.compareTo(
+        b.pedido.fechaPrevistaEntrega!,
+      );
+      if (fechaCmp != 0) return fechaCmp;
+      return _numeroVisible(a.pedido).compareTo(_numeroVisible(b.pedido));
+    }
+
+    urgentes.sort(compararPorFecha);
+    programadas.sort(compararPorFecha);
+
+    return (
+      urgentes: urgentes,
+      programadas: programadas,
+      atrasados: atrasados,
+      hoyOManana: hoyOManana,
+      proximos: proximos,
+      sinFecha: sinFecha,
+    );
+  }
+
+  Color _colorUrgenciaAlerta(AlertaEntregaPedido alerta) {
+    switch (alerta) {
+      case AlertaEntregaPedido.atrasado:
+        return _rojoMarca;
+      case AlertaEntregaPedido.hoy:
+        return const Color(0xFFD84315);
+      case AlertaEntregaPedido.manana:
+        return const Color(0xFFEF6C00);
+      case AlertaEntregaPedido.futura:
+        return const Color(0xFF0277BD);
+      case AlertaEntregaPedido.entregado:
+        return const Color(0xFF2E7D32);
+      case AlertaEntregaPedido.sinFecha:
+        return _grisTexto;
+    }
+  }
+
+  String _etiquetaUrgenciaAlerta(AlertaEntregaPedido alerta) {
+    switch (alerta) {
+      case AlertaEntregaPedido.atrasado:
+        return 'Atrasado';
+      case AlertaEntregaPedido.hoy:
+        return 'Entrega hoy';
+      case AlertaEntregaPedido.manana:
+        return 'Entrega mañana';
+      case AlertaEntregaPedido.futura:
+        return 'Próximo';
+      case AlertaEntregaPedido.entregado:
+        return 'Entregado';
+      case AlertaEntregaPedido.sinFecha:
+        return 'Sin fecha';
+    }
+  }
+
+  String _textoDiasAlerta(int diferenciaDias) {
+    if (diferenciaDias < 0) {
+      final dias = -diferenciaDias;
+      return 'Atrasado $dias ${dias == 1 ? 'día' : 'días'}';
+    }
+    if (diferenciaDias == 0) return 'Vence hoy';
+    if (diferenciaDias == 1) return 'Falta 1 día';
+    return 'Faltan $diferenciaDias días';
+  }
+
+  Widget _construirSeccionAlertas({required bool esEscritorio}) {
+    final tienePedidos = pedidos.isNotEmpty;
+    if (!tienePedidos && _cargandoPedidos) {
+      return _construirEstadoCargando(esEscritorio: esEscritorio);
+    }
+    if (!tienePedidos && _errorCargaPedidos != null) {
+      return _construirEstadoError(esEscritorio: esEscritorio);
+    }
+
+    final resumen = _prepararAlertasEntrega();
+
+    final contenido = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (esEscritorio)
+          Row(
+            children: [
+              Expanded(
+                child: _construirIndicadorAlerta(
+                  titulo: 'Atrasados',
+                  cantidad: resumen.atrasados,
+                  color: _rojoMarca,
+                  icono: Icons.warning_amber_rounded,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _construirIndicadorAlerta(
+                  titulo: 'Hoy / Mañana',
+                  cantidad: resumen.hoyOManana,
+                  color: const Color(0xFFEF6C00),
+                  icono: Icons.schedule_rounded,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _construirIndicadorAlerta(
+                  titulo: 'Próximos (2 a 7 días)',
+                  cantidad: resumen.proximos,
+                  color: const Color(0xFF0277BD),
+                  icono: Icons.event_available_rounded,
+                ),
+              ),
+            ],
+          )
+        else
+          Column(
+            children: [
+              _construirIndicadorAlerta(
+                titulo: 'Atrasados',
+                cantidad: resumen.atrasados,
+                color: _rojoMarca,
+                icono: Icons.warning_amber_rounded,
+              ),
+              const SizedBox(height: 10),
+              _construirIndicadorAlerta(
+                titulo: 'Hoy / Mañana',
+                cantidad: resumen.hoyOManana,
+                color: const Color(0xFFEF6C00),
+                icono: Icons.schedule_rounded,
+              ),
+              const SizedBox(height: 10),
+              _construirIndicadorAlerta(
+                titulo: 'Próximos (2 a 7 días)',
+                cantidad: resumen.proximos,
+                color: const Color(0xFF0277BD),
+                icono: Icons.event_available_rounded,
+              ),
+            ],
+          ),
+        if (resumen.sinFecha > 0) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: _rosaSuave.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _bordeSuave),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.info_outline_rounded,
+                  size: 18,
+                  color: _grisTexto,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${resumen.sinFecha} ${resumen.sinFecha == 1 ? 'pedido no entregado no tiene fecha prevista de entrega.' : 'pedidos no entregados no tienen fecha prevista de entrega.'}',
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w500,
+                      color: _grisTexto,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(height: 14),
+        if (resumen.urgentes.isEmpty && resumen.programadas.isEmpty)
+          _construirTarjetaInformativa(
+            icono: Icons.event_available_rounded,
+            titulo: 'Sin alertas de entrega',
+            mensaje:
+                'No hay pedidos atrasados ni entregas pendientes con fecha prevista.',
+            esEscritorio: esEscritorio,
+          )
+        else ...[
+          if (resumen.urgentes.isNotEmpty) ...[
+            _construirEncabezadoGrupoAlertas(
+              titulo: 'Entregas urgentes',
+              cantidad: resumen.urgentes.length,
+              color: _rojoMarca,
+            ),
+            const SizedBox(height: 10),
+            for (var i = 0; i < resumen.urgentes.length; i++) ...[
+              if (i > 0) const SizedBox(height: 10),
+              _construirTarjetaAlerta(
+                resumen.urgentes[i],
+                esEscritorio: esEscritorio,
+              ),
+            ],
+          ],
+          if (resumen.programadas.isNotEmpty) ...[
+            if (resumen.urgentes.isNotEmpty) const SizedBox(height: 18),
+            _construirEncabezadoGrupoAlertas(
+              titulo: 'Entregas programadas (más de 7 días)',
+              cantidad: resumen.programadas.length,
+              color: _grisTexto,
+            ),
+            const SizedBox(height: 10),
+            for (var i = 0; i < resumen.programadas.length; i++) ...[
+              if (i > 0) const SizedBox(height: 10),
+              _construirTarjetaAlerta(
+                resumen.programadas[i],
+                esEscritorio: esEscritorio,
+              ),
+            ],
+          ],
+        ],
+      ],
+    );
+
+    if (_usaListaExterna) {
+      return contenido;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            if (tienePedidos && _cargandoPedidos) ...[
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: _rojoMarca,
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Actualizando lista...',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: _grisTexto,
+                ),
+              ),
+              const SizedBox(width: 12),
+            ],
+            OutlinedButton.icon(
+              onPressed: _cargandoPedidos ? null : _cargarPedidos,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Actualizar'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _rojoMarca,
+                backgroundColor: Colors.white,
+                side: const BorderSide(color: _bordeSuave),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (tienePedidos && !_cargandoPedidos && _errorCargaPedidos != null) ...[
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: _rosaSuave.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _bordeSuave),
+            ),
+            child: const Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  size: 18,
+                  color: _rojoMarca,
+                ),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'No fue posible actualizar la lista desde Firestore. Se muestran los pedidos disponibles en memoria.',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: _negroElegante,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(height: 12),
+        contenido,
+      ],
+    );
+  }
+
+  Widget _construirIndicadorAlerta({
+    required String titulo,
+    required int cantidad,
+    required Color color,
+    required IconData icono,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _bordeSuave),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icono, color: color, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  titulo,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: _grisTexto,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '$cantidad',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: color,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _construirEncabezadoGrupoAlertas({
+    required String titulo,
+    required int cantidad,
+    required Color color,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            titulo,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              color: _negroElegante,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            '$cantidad',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _construirTarjetaAlerta(
+    _AlertaPedidoItem item, {
+    required bool esEscritorio,
+  }) {
+    final pedido = item.pedido;
+    final esProgramado = item.esProgramado;
+    final colorUrgencia = esProgramado
+        ? const Color(0xFF546E7A)
+        : _colorUrgenciaAlerta(item.alerta);
+    final etiquetaUrgencia = esProgramado
+        ? 'Programado'
+        : _etiquetaUrgenciaAlerta(item.alerta);
+    final colorProd = _colorProduccion(pedido.estadoProduccion);
+    final colorEnv = _colorEnvio(pedido.estadoEnvio);
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(esEscritorio ? 18 : 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: esProgramado
+              ? _bordeSuave
+              : colorUrgencia.withValues(alpha: 0.35),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _numeroVisible(pedido),
+                  style: const TextStyle(
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w800,
+                    color: _negroElegante,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: colorUrgencia.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  etiquetaUrgencia,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: colorUrgencia,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            pedido.clienteNombre,
+            style: const TextStyle(
+              fontSize: 14.5,
+              fontWeight: FontWeight.w700,
+              color: _negroElegante,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.event_outlined,
+                    size: 16,
+                    color: _grisTexto,
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    'Entrega: ${_formatearFecha(pedido.fechaPrevistaEntrega)}',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: _grisTexto,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+              Text(
+                _textoDiasAlerta(item.diferenciaDias),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: colorUrgencia,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: colorProd.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  'Producción: ${pedido.estadoProduccion.etiqueta}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: colorProd,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: colorEnv.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  'Envío: ${pedido.estadoEnvio.etiqueta}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: colorEnv,
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),

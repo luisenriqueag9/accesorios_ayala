@@ -918,4 +918,272 @@ void main() {
       },
     );
   });
+
+  group('PedidosView - Pestaña Alertas de entregas', () {
+    // Mediodía de Honduras (12:00 UTC-6 = 18:00 UTC) del 16 de noviembre de 2026.
+    final referencia = DateTime.utc(2026, 11, 16, 18);
+
+    Pedido crearPedidoAlerta({
+      required String id,
+      required String numero,
+      required String cliente,
+      DateTime? fechaEntrega,
+      EstadoEnvioPedido estadoEnvio = EstadoEnvioPedido.pendiente,
+      EstadoElaboracionPedido estadoItem = EstadoElaboracionPedido.enProceso,
+    }) {
+      return Pedido(
+        id: id,
+        numeroPedido: numero,
+        clienteId: 'cli-$id',
+        clienteNombre: cliente,
+        estadoEnvio: estadoEnvio,
+        fechaPrevistaEntrega: fechaEntrega,
+        items: [
+          PedidoItem(
+            itemId: 'item-$id',
+            productoId: 'prod-1',
+            nombre: 'Pulsera Dorada',
+            cantidad: 1,
+            precioUnitario: 200,
+            estadoElaboracion: estadoItem,
+          ),
+        ],
+      );
+    }
+
+    Future<void> abrirAlertas(
+      WidgetTester tester,
+      List<Pedido> listaPedidos, {
+      Size tamano = const Size(1280, 900),
+    }) async {
+      tester.view.physicalSize = tamano;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: PedidosView(
+                pedidos: listaPedidos,
+                fechaReferenciaAlertas: referencia,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final scrollableSubmenu = find
+          .ancestor(
+            of: find.text('Resumen'),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      await tester.scrollUntilVisible(
+        find.text('Alertas'),
+        200,
+        scrollable: scrollableSubmenu,
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Alertas'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'clasifica entregas urgentes (<=7 días) y programadas (>7 días), excluye entregados, incluye enviados y ordena ascendentemente',
+      (tester) async {
+        final pedidosPrueba = [
+          // +15 días (programada)
+          crearPedidoAlerta(
+            id: 'p15',
+            numero: 'PED-0015',
+            cliente: 'Elena Programada 15',
+            fechaEntrega: DateTime(2026, 12, 1),
+          ),
+          // +7 días (urgente - límite exacto)
+          crearPedidoAlerta(
+            id: 'p7',
+            numero: 'PED-0007',
+            cliente: 'Sofía Próxima 7',
+            fechaEntrega: DateTime(2026, 11, 23),
+          ),
+          // -2 días (atrasado, enviado pero aún no entregado)
+          crearPedidoAlerta(
+            id: 'p1',
+            numero: 'PED-0001',
+            cliente: 'Carlos Enviado Atrasado',
+            fechaEntrega: DateTime(2026, 11, 14),
+            estadoEnvio: EstadoEnvioPedido.enviado,
+            estadoItem: EstadoElaboracionPedido.terminado,
+          ),
+          // +1 día (mañana - urgente)
+          crearPedidoAlerta(
+            id: 'p3',
+            numero: 'PED-0003',
+            cliente: 'Lucía Mañana',
+            fechaEntrega: DateTime(2026, 11, 17),
+          ),
+          // Entregado (debe excluirse aunque esté en fecha)
+          crearPedidoAlerta(
+            id: 'p_ent',
+            numero: 'PED-0099',
+            cliente: 'Cliente Entregado',
+            fechaEntrega: DateTime(2026, 11, 16),
+            estadoEnvio: EstadoEnvioPedido.entregado,
+          ),
+          // +8 días (programada)
+          crearPedidoAlerta(
+            id: 'p8',
+            numero: 'PED-0008',
+            cliente: 'Diego Programado 8',
+            fechaEntrega: DateTime(2026, 11, 24),
+          ),
+          // Hoy (urgente)
+          crearPedidoAlerta(
+            id: 'p2',
+            numero: 'PED-0002',
+            cliente: 'María Hoy',
+            fechaEntrega: DateTime(2026, 11, 16),
+          ),
+          // Sin fecha prevista (debe contarse en aviso discreto)
+          crearPedidoAlerta(
+            id: 'p_sin',
+            numero: 'PED-0101',
+            cliente: 'Cliente Sin Fecha',
+            fechaEntrega: null,
+          ),
+        ];
+
+        await abrirAlertas(tester, pedidosPrueba);
+
+        // Indicadores de urgentes: 1 atrasado, 2 hoy/mañana, 1 próximo (2 a 7 días).
+        expect(find.text('Atrasados'), findsOneWidget);
+        expect(find.text('Hoy / Mañana'), findsOneWidget);
+        expect(find.text('Próximos (2 a 7 días)'), findsOneWidget);
+
+        // Encabezados de ambas secciones.
+        expect(find.text('Entregas urgentes'), findsOneWidget);
+        expect(
+          find.text('Entregas programadas (más de 7 días)'),
+          findsOneWidget,
+        );
+
+        // Inclusiones y exclusiones.
+        expect(find.text('PED-0001'), findsOneWidget);
+        expect(find.text('PED-0002'), findsOneWidget);
+        expect(find.text('PED-0003'), findsOneWidget);
+        expect(find.text('PED-0007'), findsOneWidget);
+        expect(find.text('PED-0008'), findsOneWidget);
+        expect(find.text('PED-0015'), findsOneWidget);
+        expect(find.text('PED-0099'), findsNothing);
+        expect(find.text('PED-0101'), findsNothing);
+
+        // Textos de días restantes/atraso, etiqueta Programado y aviso sin fecha.
+        expect(find.text('Atrasado 2 días'), findsOneWidget);
+        expect(find.text('Vence hoy'), findsOneWidget);
+        expect(find.text('Falta 1 día'), findsOneWidget);
+        expect(find.text('Faltan 7 días'), findsOneWidget);
+        expect(find.text('Faltan 8 días'), findsOneWidget);
+        expect(find.text('Faltan 15 días'), findsOneWidget);
+        expect(find.text('Programado'), findsNWidgets(2));
+        expect(
+          find.text('1 pedido no entregado no tiene fecha prevista de entrega.'),
+          findsOneWidget,
+        );
+
+        // Orden ascendente en urgentes: PED-0001 -> PED-0002 -> PED-0003 -> PED-0007.
+        final y1 = tester.getTopLeft(find.text('PED-0001')).dy;
+        final y2 = tester.getTopLeft(find.text('PED-0002')).dy;
+        final y3 = tester.getTopLeft(find.text('PED-0003')).dy;
+        final y7 = tester.getTopLeft(find.text('PED-0007')).dy;
+        expect(y1 < y2, isTrue);
+        expect(y2 < y3, isTrue);
+        expect(y3 < y7, isTrue);
+
+        // Orden ascendente en programadas (después de urgentes): PED-0008 -> PED-0015.
+        final y8 = tester.getTopLeft(find.text('PED-0008')).dy;
+        final y15 = tester.getTopLeft(find.text('PED-0015')).dy;
+        expect(y7 < y8, isTrue);
+        expect(y8 < y15, isTrue);
+      },
+    );
+
+    testWidgets(
+      'muestra entregas programadas normalmente cuando no hay entregas urgentes',
+      (tester) async {
+        await abrirAlertas(tester, [
+          crearPedidoAlerta(
+            id: 'p15',
+            numero: 'PED-0015',
+            cliente: 'Elena 15',
+            fechaEntrega: DateTime(2026, 12, 1),
+          ),
+          crearPedidoAlerta(
+            id: 'p8',
+            numero: 'PED-0008',
+            cliente: 'Diego 8',
+            fechaEntrega: DateTime(2026, 11, 24),
+          ),
+        ]);
+
+        expect(find.text('Entregas urgentes'), findsNothing);
+        expect(find.text('Sin alertas de entrega'), findsNothing);
+        expect(
+          find.text('Entregas programadas (más de 7 días)'),
+          findsOneWidget,
+        );
+        expect(find.text('PED-0008'), findsOneWidget);
+        expect(find.text('PED-0015'), findsOneWidget);
+        expect(find.text('Programado'), findsNWidgets(2));
+
+        final y8 = tester.getTopLeft(find.text('PED-0008')).dy;
+        final y15 = tester.getTopLeft(find.text('PED-0015')).dy;
+        expect(y8 < y15, isTrue);
+      },
+    );
+
+    testWidgets(
+      'presentación en móvil (390x720) sin desbordamientos con urgentes, programadas y estado vacío',
+      (tester) async {
+        await abrirAlertas(
+          tester,
+          [
+            crearPedidoAlerta(
+              id: 'p_movil_urg',
+              numero: 'PED-0010',
+              cliente: 'Valeria Móvil',
+              fechaEntrega: DateTime(2026, 11, 16),
+            ),
+            crearPedidoAlerta(
+              id: 'p_movil_prog',
+              numero: 'PED-0012',
+              cliente: 'Mateo Programado',
+              fechaEntrega: DateTime(2026, 11, 30),
+            ),
+          ],
+          tamano: const Size(390, 720),
+        );
+
+        expect(find.text('Entregas urgentes'), findsOneWidget);
+        expect(
+          find.text('Entregas programadas (más de 7 días)'),
+          findsOneWidget,
+        );
+        expect(find.text('PED-0010'), findsOneWidget);
+        expect(find.text('PED-0012'), findsOneWidget);
+        expect(find.text('Vence hoy'), findsOneWidget);
+        expect(find.text('Faltan 14 días'), findsOneWidget);
+
+        await abrirAlertas(
+          tester,
+          const [],
+          tamano: const Size(390, 720),
+        );
+
+        expect(find.text('Sin alertas de entrega'), findsOneWidget);
+      },
+    );
+  });
 }
