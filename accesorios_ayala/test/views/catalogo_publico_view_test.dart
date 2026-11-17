@@ -4,6 +4,7 @@ import 'package:accesorios_ayala/models/producto.dart';
 import 'package:accesorios_ayala/views/catalogo_publico_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:video_player/video_player.dart';
 
 Producto _p(
   String id,
@@ -52,6 +53,8 @@ Future<void> _montar(
   Future<List<Producto>> Function() cargar, {
   Future<List<Categoria>> Function()? cargarCategorias,
   Future<BannerConfig> Function()? cargarBanner,
+  VideoPlayerController Function(Uri uri)? crearControladorVideo,
+  Widget Function(VideoPlayerController controller)? construirVistaVideo,
 }) async {
   tester.view.physicalSize = const Size(1400, 3200);
   tester.view.devicePixelRatio = 1.0;
@@ -64,6 +67,8 @@ Future<void> _montar(
         cargarProductos: cargar,
         cargarCategorias: cargarCategorias ?? () async => const [],
         cargarBanner: cargarBanner ?? () async => BannerConfig.inicial(),
+        crearControladorVideo: crearControladorVideo,
+        construirVistaVideo: construirVistaVideo,
       ),
     ),
   );
@@ -708,4 +713,282 @@ void main() {
       await tester.pump(const Duration(seconds: 5));
     });
   });
+
+  group('CatalogoPublicoView - video de banner (Etapa 5D.5.5.2)', () {
+    const urlVideoValida = 'https://cdn.ejemplo.com/promo-banner.mp4';
+    const keyVideoWidget = ValueKey('video_banner_simulado');
+
+    bool esImagenRespaldo(Widget w) =>
+        w is Image &&
+        w.image is AssetImage &&
+        (w.image as AssetImage).assetName ==
+            'assets/images/banner_pulsera_premium.png';
+
+    testWidgets(
+      'video activo con URL válida inicializa en orden, silencia, activa bucle y reproduce',
+      (tester) async {
+        _FakeVideoPlayerController? fakeCtrl;
+
+        await _montar(
+          tester,
+          () async => _productos,
+          cargarBanner: () async => BannerConfig(
+            activo: true,
+            modo: ModoBannerCatalogo.video,
+            videoUrl: urlVideoValida,
+          ),
+          crearControladorVideo: (uri) {
+            fakeCtrl = _FakeVideoPlayerController();
+            return fakeCtrl!;
+          },
+          construirVistaVideo: (_) => const SizedBox.expand(key: keyVideoWidget),
+        );
+
+        expect(fakeCtrl, isNotNull);
+        expect(fakeCtrl!.llamadas, [
+          'initialize',
+          'setVolume:0.0',
+          'setLooping:true',
+          'play',
+        ]);
+        expect(find.byKey(keyVideoWidget), findsOneWidget);
+        expect(find.byWidgetPredicate(esImagenRespaldo), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'video desactivado muestra respaldo estático sin inicializar controlador',
+      (tester) async {
+        var invocaciones = 0;
+
+        await _montar(
+          tester,
+          () async => _productos,
+          cargarBanner: () async => BannerConfig(
+            activo: false,
+            modo: ModoBannerCatalogo.video,
+            videoUrl: urlVideoValida,
+          ),
+          crearControladorVideo: (_) {
+            invocaciones++;
+            return _FakeVideoPlayerController();
+          },
+          construirVistaVideo: (_) => const SizedBox.expand(key: keyVideoWidget),
+        );
+
+        expect(invocaciones, 0);
+        expect(find.byKey(keyVideoWidget), findsNothing);
+        expect(find.byWidgetPredicate(esImagenRespaldo), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'URL inválida o ausente muestra respaldo estático sin inicializar video',
+      (tester) async {
+        var invocaciones = 0;
+
+        await _montar(
+          tester,
+          () async => _productos,
+          cargarBanner: () async => BannerConfig(
+            activo: true,
+            modo: ModoBannerCatalogo.video,
+            videoUrl: '/ruta-relativa-invalida.mp4',
+          ),
+          crearControladorVideo: (_) {
+            invocaciones++;
+            return _FakeVideoPlayerController();
+          },
+          construirVistaVideo: (_) => const SizedBox.expand(key: keyVideoWidget),
+        );
+
+        expect(invocaciones, 0);
+        expect(find.byKey(keyVideoWidget), findsNothing);
+        expect(find.byWidgetPredicate(esImagenRespaldo), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'error de inicialización mantiene el respaldo estático y libera el controlador',
+      (tester) async {
+        _FakeVideoPlayerController? fakeCtrl;
+
+        await _montar(
+          tester,
+          () async => _productos,
+          cargarBanner: () async => BannerConfig(
+            activo: true,
+            modo: ModoBannerCatalogo.video,
+            videoUrl: urlVideoValida,
+          ),
+          crearControladorVideo: (_) {
+            fakeCtrl = _FakeVideoPlayerController(fallarInitialize: true);
+            return fakeCtrl!;
+          },
+          construirVistaVideo: (_) => const SizedBox.expand(key: keyVideoWidget),
+        );
+
+        expect(fakeCtrl, isNotNull);
+        expect(fakeCtrl!.disposed, isTrue);
+        expect(find.byKey(keyVideoWidget), findsNothing);
+        expect(find.byWidgetPredicate(esImagenRespaldo), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'fallo de reproducción automática mantiene el respaldo estático y libera el controlador',
+      (tester) async {
+        _FakeVideoPlayerController? fakeCtrl;
+
+        await _montar(
+          tester,
+          () async => _productos,
+          cargarBanner: () async => BannerConfig(
+            activo: true,
+            modo: ModoBannerCatalogo.video,
+            videoUrl: urlVideoValida,
+          ),
+          crearControladorVideo: (_) {
+            fakeCtrl = _FakeVideoPlayerController(fallarPlay: true);
+            return fakeCtrl!;
+          },
+          construirVistaVideo: (_) => const SizedBox.expand(key: keyVideoWidget),
+        );
+
+        expect(fakeCtrl, isNotNull);
+        expect(fakeCtrl!.disposed, isTrue);
+        expect(find.byKey(keyVideoWidget), findsNothing);
+        expect(find.byWidgetPredicate(esImagenRespaldo), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'modos Imagen fija y Carrusel no inicializan el controlador de video',
+      (tester) async {
+        var invocaciones = 0;
+
+        await _montar(
+          tester,
+          () async => _productos,
+          cargarBanner: () async => BannerConfig(
+            activo: true,
+            modo: ModoBannerCatalogo.imagen,
+            imagenUrl: 'https://cdn.ejemplo.com/banner.jpg',
+            videoUrl: urlVideoValida,
+          ),
+          crearControladorVideo: (_) {
+            invocaciones++;
+            return _FakeVideoPlayerController();
+          },
+        );
+        expect(invocaciones, 0);
+
+        await _montar(
+          tester,
+          () async => _productos,
+          cargarBanner: () async => BannerConfig(
+            activo: true,
+            modo: ModoBannerCatalogo.carrusel,
+            videoUrl: urlVideoValida,
+            carrusel: const [
+              BannerCarruselItem(
+                id: 'c1',
+                url: 'https://cdn.ejemplo.com/1.jpg',
+                orden: 0,
+              ),
+            ],
+          ),
+          crearControladorVideo: (_) {
+            invocaciones++;
+            return _FakeVideoPlayerController();
+          },
+        );
+        expect(invocaciones, 0);
+      },
+    );
+
+    testWidgets(
+      'libera el controlador de video al desmontar la vista',
+      (tester) async {
+        _FakeVideoPlayerController? fakeCtrl;
+
+        await _montar(
+          tester,
+          () async => _productos,
+          cargarBanner: () async => BannerConfig(
+            activo: true,
+            modo: ModoBannerCatalogo.video,
+            videoUrl: urlVideoValida,
+          ),
+          crearControladorVideo: (_) {
+            fakeCtrl = _FakeVideoPlayerController();
+            return fakeCtrl!;
+          },
+          construirVistaVideo: (_) => const SizedBox.expand(key: keyVideoWidget),
+        );
+
+        expect(fakeCtrl, isNotNull);
+        expect(fakeCtrl!.disposed, isFalse);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+        expect(fakeCtrl!.disposed, isTrue);
+      },
+    );
+  });
+}
+
+class _FakeVideoPlayerController extends ValueNotifier<VideoPlayerValue>
+    implements VideoPlayerController {
+  final bool fallarInitialize;
+  final bool fallarPlay;
+  final List<String> llamadas = [];
+  bool disposed = false;
+
+  _FakeVideoPlayerController({
+    this.fallarInitialize = false,
+    this.fallarPlay = false,
+  }) : super(const VideoPlayerValue.uninitialized());
+
+  @override
+  Future<void> initialize() async {
+    llamadas.add('initialize');
+    if (fallarInitialize) {
+      throw Exception('error initialize');
+    }
+    value = value.copyWith(
+      isInitialized: true,
+      duration: const Duration(seconds: 5),
+      size: const Size(1280, 720),
+    );
+  }
+
+  @override
+  Future<void> setVolume(double volume) async {
+    llamadas.add('setVolume:$volume');
+    value = value.copyWith(volume: volume);
+  }
+
+  @override
+  Future<void> setLooping(bool looping) async {
+    llamadas.add('setLooping:$looping');
+    value = value.copyWith(isLooping: looping);
+  }
+
+  @override
+  Future<void> play() async {
+    llamadas.add('play');
+    if (fallarPlay) {
+      throw Exception('error play');
+    }
+    value = value.copyWith(isPlaying: true);
+  }
+
+  @override
+  Future<void> dispose() async {
+    disposed = true;
+    super.dispose();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

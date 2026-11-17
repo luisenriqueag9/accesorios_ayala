@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:video_player/video_player.dart';
 import '../controllers/banner_controller.dart';
 import '../controllers/categoria_controller.dart';
 import '../controllers/producto_controller.dart';
@@ -62,11 +63,20 @@ class CatalogoPublicoView extends StatefulWidget {
   /// [BannerController.cargarConfiguracion].
   final Future<BannerConfig> Function()? cargarBanner;
 
+  /// Inyección opcional para pruebas. Si es `null` se usa
+  /// [VideoPlayerController.networkUrl].
+  final VideoPlayerController Function(Uri uri)? crearControladorVideo;
+
+  /// Inyección opcional para pruebas. Si es `null` se usa [VideoPlayer].
+  final Widget Function(VideoPlayerController controller)? construirVistaVideo;
+
   const CatalogoPublicoView({
     super.key,
     this.cargarProductos,
     this.cargarCategorias,
     this.cargarBanner,
+    this.crearControladorVideo,
+    this.construirVistaVideo,
   });
 
   @override
@@ -112,6 +122,13 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
   Timer? _timerCarrusel;
   int _indiceCarruselActual = 0;
   bool _animandoCarrusel = false;
+  VideoPlayerController? _videoBannerController;
+  String? _videoBannerUrl;
+  bool _videoBannerListo = false;
+  int _tokenVideoBanner = 0;
+  final Expando<bool> _videosBannerDispuestos = Expando<bool>(
+    'videosBannerDispuestos',
+  );
 
   bool get _hayProductosVisibles => _productos.any((p) => p.visibleCatalogo);
 
@@ -144,6 +161,7 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
   @override
   void dispose() {
     _detenerTimerCarrusel();
+    _liberarVideoBanner();
     final controller = _carruselPageCtrl;
     _carruselPageCtrl = null;
     controller?.dispose();
@@ -298,6 +316,116 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
     }
   }
 
+  Future<void> _disponerControladorVideoSeguro(
+    VideoPlayerController controller,
+  ) async {
+    if (_videosBannerDispuestos[controller] == true) return;
+    _videosBannerDispuestos[controller] = true;
+    try {
+      await controller.dispose();
+    } catch (_) {}
+  }
+
+  void _liberarVideoBanner() {
+    _tokenVideoBanner++;
+    final controller = _videoBannerController;
+    _videoBannerController = null;
+    _videoBannerUrl = null;
+    _videoBannerListo = false;
+    if (controller != null) {
+      _disponerControladorVideoSeguro(controller);
+    }
+  }
+
+  Future<void> _configurarVideoBanner() async {
+    final url = _bannerConfig.videoUrl?.trim();
+    final debeUsarVideo =
+        _bannerConfig.debeMostrarse &&
+        _bannerConfig.modo == ModoBannerCatalogo.video &&
+        url != null &&
+        url.isNotEmpty;
+
+    if (!debeUsarVideo) {
+      if (mounted) {
+        setState(_liberarVideoBanner);
+      } else {
+        _liberarVideoBanner();
+      }
+      return;
+    }
+
+    if (url == _videoBannerUrl && _videoBannerController != null) {
+      return;
+    }
+
+    _liberarVideoBanner();
+    final tokenActual = _tokenVideoBanner;
+    _videoBannerUrl = url;
+
+    final uri = Uri.tryParse(url);
+    if (uri == null ||
+        !(uri.scheme == 'http' || uri.scheme == 'https') ||
+        uri.host.isEmpty) {
+      _liberarVideoBanner();
+      return;
+    }
+
+    VideoPlayerController? controller;
+    try {
+      controller =
+          (widget.crearControladorVideo ?? VideoPlayerController.networkUrl)(
+            uri,
+          );
+      _videoBannerController = controller;
+
+      await controller.initialize();
+      if (!mounted ||
+          tokenActual != _tokenVideoBanner ||
+          !identical(controller, _videoBannerController)) {
+        await _disponerControladorVideoSeguro(controller);
+        return;
+      }
+
+      await controller.setVolume(0.0);
+      if (!mounted ||
+          tokenActual != _tokenVideoBanner ||
+          !identical(controller, _videoBannerController)) {
+        await _disponerControladorVideoSeguro(controller);
+        return;
+      }
+
+      await controller.setLooping(true);
+      if (!mounted ||
+          tokenActual != _tokenVideoBanner ||
+          !identical(controller, _videoBannerController)) {
+        await _disponerControladorVideoSeguro(controller);
+        return;
+      }
+
+      await controller.play();
+      if (!mounted ||
+          tokenActual != _tokenVideoBanner ||
+          !identical(controller, _videoBannerController)) {
+        await _disponerControladorVideoSeguro(controller);
+        return;
+      }
+
+      setState(() {
+        _videoBannerListo = true;
+      });
+    } catch (_) {
+      if (controller == null ||
+          identical(controller, _videoBannerController)) {
+        _liberarVideoBanner();
+        if (mounted) {
+          setState(() {});
+        }
+      } else {
+        await _disponerControladorVideoSeguro(controller);
+      }
+    }
+  }
+
   Future<void> _cargarBanner() async {
     try {
       final config = await (widget.cargarBanner ??
@@ -309,6 +437,7 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
         _cargandoBanner = false;
       });
       _configurarCarrusel();
+      _configurarVideoBanner();
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -316,6 +445,7 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
         _cargandoBanner = false;
       });
       _configurarCarrusel();
+      _configurarVideoBanner();
     }
   }
 
@@ -1722,6 +1852,35 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
             errorBuilder: (_, __, ___) => imagenRespaldo,
           );
         },
+      );
+    }
+
+    if (_bannerConfig.modo == ModoBannerCatalogo.video) {
+      final controller = _videoBannerController;
+      if (!_videoBannerListo ||
+          controller == null ||
+          !controller.value.isInitialized ||
+          controller.value.hasError) {
+        return imagenRespaldo;
+      }
+
+      final tamano = controller.value.size;
+      final ancho = tamano.width > 0 ? tamano.width : 16.0;
+      final alto = tamano.height > 0 ? tamano.height : 9.0;
+      final vistaVideo =
+          widget.construirVistaVideo?.call(controller) ??
+          VideoPlayer(controller);
+
+      return ClipRect(
+        child: FittedBox(
+          fit: BoxFit.cover,
+          alignment: Alignment.center,
+          child: SizedBox(
+            width: ancho,
+            height: alto,
+            child: vistaVideo,
+          ),
+        ),
       );
     }
 
