@@ -55,6 +55,10 @@ class PedidosView extends StatefulWidget {
   /// Si es `null` se utiliza [DateTime.now].
   final DateTime? fechaReferenciaAlertas;
 
+  /// Fecha de referencia opcional para pruebas deterministas de reportes.
+  /// Si es `null` se utiliza [DateTime.now].
+  final DateTime? fechaReferenciaReportes;
+
   const PedidosView({
     super.key,
     this.pedidos,
@@ -62,6 +66,7 @@ class PedidosView extends StatefulWidget {
     this.onCargarFacturas,
     this.onBuscarPedidoPorFactura,
     this.fechaReferenciaAlertas,
+    this.fechaReferenciaReportes,
   });
 
   @override
@@ -498,12 +503,7 @@ class _PedidosViewState extends State<PedidosView> {
           onPedidoRegistrado: _manejarPedidoRegistrado,
         );
       case _SubseccionPedidos.reportes:
-        return _construirTarjetaInformativa(
-          icono: Icons.bar_chart_rounded,
-          titulo: 'Reportes de pedidos',
-          mensaje: 'Aquí podrás consultar los reportes de tus pedidos',
-          esEscritorio: esEscritorio,
-        );
+        return _construirSeccionReportes(esEscritorio: esEscritorio);
       case _SubseccionPedidos.alertas:
         return _construirSeccionAlertas(esEscritorio: esEscritorio);
     }
@@ -612,6 +612,346 @@ class _PedidosViewState extends State<PedidosView> {
                   ),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  ({
+    int cantidadHoy,
+    double totalHoy,
+    int cantidadSemana,
+    double totalSemana,
+    int cantidadMes,
+    double totalMes,
+    int sinFechaCreacion,
+  }) _prepararReportesPedidos() {
+    final referencia = widget.fechaReferenciaReportes ?? DateTime.now();
+    final refHonduras = referencia.toUtc().subtract(const Duration(hours: 6));
+    final hoy = DateTime.utc(
+      refHonduras.year,
+      refHonduras.month,
+      refHonduras.day,
+    );
+    final inicioSemana = hoy.subtract(Duration(days: hoy.weekday - 1));
+    final finSemana = inicioSemana.add(const Duration(days: 6));
+    final inicioMes = DateTime.utc(hoy.year, hoy.month, 1);
+    final finMes = DateTime.utc(hoy.year, hoy.month + 1, 0);
+
+    var cantidadHoy = 0;
+    var centavosHoy = 0;
+    var cantidadSemana = 0;
+    var centavosSemana = 0;
+    var cantidadMes = 0;
+    var centavosMes = 0;
+    var sinFechaCreacion = 0;
+
+    for (final pedido in pedidos) {
+      final createdAt = pedido.createdAt;
+      if (createdAt == null) {
+        sinFechaCreacion++;
+        continue;
+      }
+
+      final creadoHn = createdAt.toUtc().subtract(const Duration(hours: 6));
+      final creadoDia = DateTime.utc(
+        creadoHn.year,
+        creadoHn.month,
+        creadoHn.day,
+      );
+      final centavos = (pedido.totalEstimado * 100).round();
+
+      if (creadoDia == hoy) {
+        cantidadHoy++;
+        centavosHoy += centavos;
+      }
+      if (!creadoDia.isBefore(inicioSemana) && !creadoDia.isAfter(finSemana)) {
+        cantidadSemana++;
+        centavosSemana += centavos;
+      }
+      if (!creadoDia.isBefore(inicioMes) && !creadoDia.isAfter(finMes)) {
+        cantidadMes++;
+        centavosMes += centavos;
+      }
+    }
+
+    return (
+      cantidadHoy: cantidadHoy,
+      totalHoy: centavosHoy / 100.0,
+      cantidadSemana: cantidadSemana,
+      totalSemana: centavosSemana / 100.0,
+      cantidadMes: cantidadMes,
+      totalMes: centavosMes / 100.0,
+      sinFechaCreacion: sinFechaCreacion,
+    );
+  }
+
+  Widget _construirSeccionReportes({required bool esEscritorio}) {
+    final tienePedidos = pedidos.isNotEmpty;
+    if (!tienePedidos && _cargandoPedidos) {
+      return _construirEstadoCargando(esEscritorio: esEscritorio);
+    }
+    if (!tienePedidos && _errorCargaPedidos != null) {
+      return _construirEstadoError(esEscritorio: esEscritorio);
+    }
+
+    final reporte = _prepararReportesPedidos();
+
+    final contenido = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (esEscritorio)
+          Row(
+            children: [
+              Expanded(
+                child: _construirTarjetaReporte(
+                  periodo: 'Hoy',
+                  cantidad: reporte.cantidadHoy,
+                  total: reporte.totalHoy,
+                  icono: Icons.today_rounded,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _construirTarjetaReporte(
+                  periodo: 'Esta semana',
+                  cantidad: reporte.cantidadSemana,
+                  total: reporte.totalSemana,
+                  icono: Icons.date_range_rounded,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _construirTarjetaReporte(
+                  periodo: 'Este mes',
+                  cantidad: reporte.cantidadMes,
+                  total: reporte.totalMes,
+                  icono: Icons.calendar_month_rounded,
+                ),
+              ),
+            ],
+          )
+        else
+          Column(
+            children: [
+              _construirTarjetaReporte(
+                periodo: 'Hoy',
+                cantidad: reporte.cantidadHoy,
+                total: reporte.totalHoy,
+                icono: Icons.today_rounded,
+              ),
+              const SizedBox(height: 10),
+              _construirTarjetaReporte(
+                periodo: 'Esta semana',
+                cantidad: reporte.cantidadSemana,
+                total: reporte.totalSemana,
+                icono: Icons.date_range_rounded,
+              ),
+              const SizedBox(height: 10),
+              _construirTarjetaReporte(
+                periodo: 'Este mes',
+                cantidad: reporte.cantidadMes,
+                total: reporte.totalMes,
+                icono: Icons.calendar_month_rounded,
+              ),
+            ],
+          ),
+        if (reporte.sinFechaCreacion > 0) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: _rosaSuave.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _bordeSuave),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.info_outline_rounded,
+                  size: 18,
+                  color: _grisTexto,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${reporte.sinFechaCreacion} ${reporte.sinFechaCreacion == 1 ? 'pedido no tiene fecha de creación y fue excluido de los períodos.' : 'pedidos no tienen fecha de creación y fueron excluidos de los períodos.'}',
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w500,
+                      color: _grisTexto,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+        if (!tienePedidos) ...[
+          const SizedBox(height: 14),
+          _construirTarjetaInformativa(
+            icono: Icons.bar_chart_rounded,
+            titulo: 'Sin pedidos registrados',
+            mensaje:
+                'Aún no hay pedidos registrados para mostrar en los reportes.',
+            esEscritorio: esEscritorio,
+          ),
+        ],
+      ],
+    );
+
+    if (_usaListaExterna) {
+      return contenido;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            if (tienePedidos && _cargandoPedidos) ...[
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: _rojoMarca,
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Actualizando lista...',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: _grisTexto,
+                ),
+              ),
+              const SizedBox(width: 12),
+            ],
+            OutlinedButton.icon(
+              onPressed: _cargandoPedidos ? null : _cargarPedidos,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Actualizar'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _rojoMarca,
+                backgroundColor: Colors.white,
+                side: const BorderSide(color: _bordeSuave),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (tienePedidos && !_cargandoPedidos && _errorCargaPedidos != null) ...[
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: _rosaSuave.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _bordeSuave),
+            ),
+            child: const Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  size: 18,
+                  color: _rojoMarca,
+                ),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'No fue posible actualizar la lista desde Firestore. Se muestran los pedidos disponibles en memoria.',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: _negroElegante,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(height: 12),
+        contenido,
+      ],
+    );
+  }
+
+  Widget _construirTarjetaReporte({
+    required String periodo,
+    required int cantidad,
+    required double total,
+    required IconData icono,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: _decoracionTarjeta(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: _rosaSuave,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _bordeSuave),
+                ),
+                child: Icon(icono, color: _rojoMarca, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  periodo,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: _negroElegante,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            '$cantidad ${cantidad == 1 ? 'pedido' : 'pedidos'}',
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: _rojoMarca,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Total registrado',
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: _grisTexto,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'L. ${total.toStringAsFixed(2)}',
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: _negroElegante,
             ),
           ),
         ],

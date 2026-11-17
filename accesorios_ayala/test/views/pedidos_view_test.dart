@@ -1186,4 +1186,233 @@ void main() {
       },
     );
   });
+
+  group('PedidosView - Pestaña Reportes (Etapa 1)', () {
+    // Miércoles 18 de noviembre de 2026 a las 12:00 Honduras (18:00 UTC).
+    final referencia = DateTime.utc(2026, 11, 18, 18);
+
+    Pedido crearPedidoReporte({
+      required String id,
+      required String numero,
+      required double precio,
+      DateTime? createdAt,
+      DateTime? fechaPrevistaEntrega,
+      EstadoEnvioPedido estadoEnvio = EstadoEnvioPedido.pendiente,
+    }) {
+      return Pedido(
+        id: id,
+        numeroPedido: numero,
+        clienteId: 'cli-$id',
+        clienteNombre: 'Cliente $id',
+        estadoEnvio: estadoEnvio,
+        createdAt: createdAt,
+        fechaPrevistaEntrega: fechaPrevistaEntrega,
+        items: [
+          PedidoItem(
+            itemId: 'item-$id',
+            productoId: 'prod-1',
+            nombre: 'Pulsera',
+            cantidad: 1,
+            precioUnitario: precio,
+          ),
+        ],
+      );
+    }
+
+    Future<void> abrirReportes(
+      WidgetTester tester,
+      List<Pedido> listaPedidos, {
+      DateTime? fechaRef,
+      Size tamano = const Size(1280, 900),
+    }) async {
+      tester.view.physicalSize = tamano;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: PedidosView(
+                pedidos: listaPedidos,
+                fechaReferenciaReportes: fechaRef ?? referencia,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final scrollableSubmenu = find
+          .ancestor(
+            of: find.text('Resumen'),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      await tester.scrollUntilVisible(
+        find.text('Reportes'),
+        200,
+        scrollable: scrollableSubmenu,
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Reportes'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'calcula conteos y sumas monetarias exactas para hoy, semana (lunes-domingo) y mes, incluyendo entregados y excluyendo sin createdAt',
+      (tester) async {
+        final lista = [
+          // Hoy (miércoles 18/11 00:00 HN = 06:00Z), entregado, fecha entrega en otro mes para confirmar que usa createdAt.
+          crearPedidoReporte(
+            id: 'r1',
+            numero: 'PED-0001',
+            precio: 150.25,
+            createdAt: DateTime.utc(2026, 11, 18, 6, 0),
+            fechaPrevistaEntrega: DateTime(2026, 12, 5),
+            estadoEnvio: EstadoEnvioPedido.entregado,
+          ),
+          // Ayer martes (17/11 23:59 HN = 18/11 05:59Z) -> no hoy, sí semana y mes.
+          crearPedidoReporte(
+            id: 'r2',
+            numero: 'PED-0002',
+            precio: 100.25,
+            createdAt: DateTime.utc(2026, 11, 18, 5, 59),
+          ),
+          // Lunes de esta semana (16/11 06:00 HN = 12:00Z) -> sí semana y mes.
+          crearPedidoReporte(
+            id: 'r3',
+            numero: 'PED-0003',
+            precio: 200.50,
+            createdAt: DateTime.utc(2026, 11, 16, 12, 0),
+          ),
+          // Domingo semana anterior (15/11 23:30 HN = 16/11 05:30Z) -> no semana, sí mes.
+          crearPedidoReporte(
+            id: 'r4',
+            numero: 'PED-0004',
+            precio: 100.00,
+            createdAt: DateTime.utc(2026, 11, 16, 5, 30),
+          ),
+          // Mes anterior (31/10 HN) -> excluido de los tres.
+          crearPedidoReporte(
+            id: 'r5',
+            numero: 'PED-0005',
+            precio: 500.00,
+            createdAt: DateTime.utc(2026, 10, 31, 18, 0),
+          ),
+          // Sin fecha de creación -> excluido con aviso discreto.
+          crearPedidoReporte(
+            id: 'r6',
+            numero: 'PED-0006',
+            precio: 300.00,
+            createdAt: null,
+          ),
+        ];
+
+        await abrirReportes(tester, lista);
+
+        expect(find.text('Hoy'), findsOneWidget);
+        expect(find.text('Esta semana'), findsOneWidget);
+        expect(find.text('Este mes'), findsOneWidget);
+        expect(find.text('Total registrado'), findsNWidgets(3));
+
+        // Hoy: 1 pedido, L. 150.25
+        expect(find.text('1 pedido'), findsOneWidget);
+        expect(find.text('L. 150.25'), findsOneWidget);
+
+        // Semana: 3 pedidos, L. 451.00
+        expect(find.text('3 pedidos'), findsOneWidget);
+        expect(find.text('L. 451.00'), findsOneWidget);
+
+        // Mes: 4 pedidos, L. 551.00
+        expect(find.text('4 pedidos'), findsOneWidget);
+        expect(find.text('L. 551.00'), findsOneWidget);
+
+        expect(
+          find.text(
+            '1 pedido no tiene fecha de creación y fue excluido de los períodos.',
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'respeta el cambio de día de Honduras a las 06:00 UTC y límites de mes',
+      (tester) async {
+        final pedidosFrontera = [
+          // 17/11 23:30 HN = 18/11 05:30Z
+          crearPedidoReporte(
+            id: 'f1',
+            numero: 'PED-0010',
+            precio: 50.00,
+            createdAt: DateTime.utc(2026, 11, 18, 5, 30),
+          ),
+          // 18/11 00:00 HN = 18/11 06:00Z
+          crearPedidoReporte(
+            id: 'f2',
+            numero: 'PED-0011',
+            precio: 75.00,
+            createdAt: DateTime.utc(2026, 11, 18, 6, 0),
+          ),
+          // Primer día del mes: 01/11 00:00 HN = 01/11 06:00Z
+          crearPedidoReporte(
+            id: 'f3',
+            numero: 'PED-0012',
+            precio: 25.00,
+            createdAt: DateTime.utc(2026, 11, 1, 6, 0),
+          ),
+        ];
+
+        // A las 06:00 UTC del 18/11 ya es 18/11 00:00 en Honduras.
+        await abrirReportes(
+          tester,
+          pedidosFrontera,
+          fechaRef: DateTime.utc(2026, 11, 18, 6, 0),
+        );
+
+        expect(find.text('1 pedido'), findsOneWidget);
+        expect(find.text('L. 75.00'), findsOneWidget);
+        expect(find.text('2 pedidos'), findsOneWidget);
+        expect(find.text('L. 125.00'), findsOneWidget);
+        expect(find.text('3 pedidos'), findsOneWidget);
+        expect(find.text('L. 150.00'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'presentación en móvil (390x720) sin desbordamientos y estado vacío',
+      (tester) async {
+        await abrirReportes(
+          tester,
+          [
+            crearPedidoReporte(
+              id: 'm1',
+              numero: 'PED-0020',
+              precio: 99.95,
+              createdAt: DateTime.utc(2026, 11, 18, 12, 0),
+            ),
+          ],
+          tamano: const Size(390, 720),
+        );
+
+        expect(find.text('Hoy'), findsOneWidget);
+        expect(find.text('Esta semana'), findsOneWidget);
+        expect(find.text('Este mes'), findsOneWidget);
+        expect(find.text('1 pedido'), findsNWidgets(3));
+        expect(find.text('L. 99.95'), findsNWidgets(3));
+
+        await abrirReportes(
+          tester,
+          const [],
+          tamano: const Size(390, 720),
+        );
+
+        expect(find.text('0 pedidos'), findsNWidgets(3));
+        expect(find.text('L. 0.00'), findsNWidgets(3));
+        expect(find.text('Sin pedidos registrados'), findsOneWidget);
+      },
+    );
+  });
 }
