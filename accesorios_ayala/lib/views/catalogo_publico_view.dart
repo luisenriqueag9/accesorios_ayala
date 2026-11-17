@@ -102,8 +102,7 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
   String? _errorCategorias;
   String? _categoriaSeleccionadaId;
 
-  // Estado independiente para la configuración del banner (sin cambios visuales en esta etapa).
-  // ignore: unused_field
+  // Estado independiente para la configuración del banner.
   BannerConfig _bannerConfig = BannerConfig.inicial();
   // ignore: unused_field
   bool _cargandoBanner = true;
@@ -1595,16 +1594,41 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
     );
   }
 
+  Widget _construirMediaBanner(Widget imagenRespaldo) {
+    final urlImagen = _bannerConfig.imagenUrl?.trim();
+    final mostrarImagenFija =
+        _bannerConfig.debeMostrarse &&
+        _bannerConfig.modo == ModoBannerCatalogo.imagen &&
+        urlImagen != null &&
+        urlImagen.isNotEmpty;
+
+    if (!mostrarImagenFija) {
+      return imagenRespaldo;
+    }
+
+    return Image.network(
+      urlImagen,
+      fit: BoxFit.cover,
+      alignment: Alignment.center,
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return imagenRespaldo;
+      },
+      errorBuilder: (_, __, ___) => imagenRespaldo,
+    );
+  }
+
   Widget _construirBannerBienvenida({
     required bool esEscritorio,
     required double paddingHorizontal,
   }) {
-    final imagenHero = Image.asset(
+    final imagenRespaldo = Image.asset(
       'assets/images/banner_pulsera_premium.png',
       fit: BoxFit.cover,
       alignment: Alignment.center,
       errorBuilder: (_, __, ___) => Container(color: _negroPortada),
     );
+    final imagenHero = _construirMediaBanner(imagenRespaldo);
 
     if (esEscritorio) {
       return Container(
