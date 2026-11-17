@@ -1155,193 +1155,343 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
     );
   }
 
+  Widget _construirBadgeDisponibleModal() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: _doradoElegante.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _doradoElegante.withValues(alpha: 0.45)),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.auto_awesome_rounded,
+            color: _doradoElegante,
+            size: 13,
+          ),
+          SizedBox(width: 5),
+          Text(
+            'Disponible',
+            style: TextStyle(
+              color: _champan,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _construirPrecioModal(Producto producto, {double fontSize = 26}) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        const Text(
+          'L.',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: _doradoElegante,
+          ),
+        ),
+        const SizedBox(width: 5),
+        Text(
+          producto.precio.toStringAsFixed(2),
+          style: TextStyle(
+            fontSize: fontSize,
+            fontWeight: FontWeight.w900,
+            color: _champan,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _construirBotonAgregarModal(
+    BuildContext modalContext,
+    Producto producto,
+  ) {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: ElevatedButton.icon(
+        onPressed: () {
+          Navigator.pop(modalContext);
+          _agregarAlCarrito(producto);
+        },
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _doradoElegante,
+          foregroundColor: _negroPortada,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        icon: const Icon(Icons.add_shopping_cart_rounded, size: 20),
+        label: const Text(
+          'Agregar al carrito',
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+
   void _mostrarDetalleProducto(BuildContext context, Producto producto) {
-    showModalBottomSheet(
+    showDialog<void>(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.72),
       builder: (modalContext) {
-        return Center(
+        final tamanoPantalla = MediaQuery.sizeOf(modalContext);
+        final esEscritorio = tamanoPantalla.width >= 760;
+        final maxAltura = tamanoPantalla.height * 0.85;
+        final altoEscritorio = maxAltura < 520.0 ? maxAltura : 520.0;
+        final altoImagenMovil = (tamanoPantalla.height * 0.28).clamp(
+          150.0,
+          230.0,
+        );
+
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: EdgeInsets.symmetric(
+            horizontal: esEscritorio ? 32 : 16,
+            vertical: 20,
+          ),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 600),
+            constraints: BoxConstraints(
+              maxWidth: esEscritorio ? 850 : 480,
+              maxHeight: maxAltura,
+            ),
             child: Container(
-              margin: const EdgeInsets.only(top: 40),
-              decoration: const BoxDecoration(
-                color: _blanco,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              decoration: BoxDecoration(
+                color: _negroPortada,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: _doradoElegante.withValues(alpha: 0.30),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    blurRadius: 28,
+                    offset: const Offset(0, 12),
+                  ),
+                ],
               ),
-              child: SafeArea(
-                top: false,
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(22, 12, 22, 24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Indicador superior del modal
-                      Center(
-                        child: Container(
-                          width: 44,
-                          height: 5,
-                          decoration: BoxDecoration(
-                            color: _bordeSuave,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-
-                      // Botón de cierre del modal
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: IconButton(
-                          onPressed: () => Navigator.pop(modalContext),
-                          icon: const Icon(Icons.close_rounded),
-                          color: _grisTexto,
-                          tooltip: 'Cerrar',
-                        ),
-                      ),
-
-                      // Imagen / Placeholder grande formato escaparate (completa sin recortes)
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(22),
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(
-                            minHeight: 220,
-                            maxHeight: 360,
-                          ),
-                          child: SizedBox(
-                            width: double.infinity,
-                            child: _construirVisualProducto(
-                              producto,
-                              iconoSize: 78,
-                              fit: BoxFit.contain,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-
-                      // Nombre y Precio
-                      Text(
-                        producto.nombre,
-                        style: const TextStyle(
-                          fontSize: 21,
-                          fontWeight: FontWeight.bold,
-                          color: _negroElegante,
-                          height: 1.25,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
-                        textBaseline: TextBaseline.alphabetic,
-                        children: [
-                          const Text(
-                            'L.',
-                            style: TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w700,
-                              color: _rojoMarca,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            producto.precio.toStringAsFixed(2),
-                            style: const TextStyle(
-                              fontSize: 27,
-                              fontWeight: FontWeight.w900,
-                              color: _negroElegante,
-                            ),
-                          ),
-                          const Spacer(),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _rosaClaro,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: _bordeSuave),
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.auto_awesome_rounded,
-                                  color: _rojoMarca,
-                                  size: 14,
-                                ),
-                                SizedBox(width: 4),
-                                Text(
-                                  'Disponible',
-                                  style: TextStyle(
-                                    color: _rojoMarca,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 12,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(24),
+                child: esEscritorio
+                    ? SizedBox(
+                        height: altoEscritorio,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(
+                              flex: 11,
+                              child: Container(
+                                color: _negroSuperficie,
+                                padding: const EdgeInsets.all(14),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: _construirVisualProducto(
+                                    producto,
+                                    iconoSize: 72,
+                                    fit: BoxFit.contain,
                                   ),
                                 ),
-                              ],
+                              ),
+                            ),
+                            Container(
+                              width: 1,
+                              color: _doradoElegante.withValues(alpha: 0.16),
+                            ),
+                            Expanded(
+                              flex: 12,
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  24,
+                                  18,
+                                  20,
+                                  22,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        _construirBadgeDisponibleModal(),
+                                        IconButton(
+                                          onPressed: () =>
+                                              Navigator.pop(modalContext),
+                                          icon: const Icon(Icons.close_rounded),
+                                          color: _champan,
+                                          tooltip: 'Cerrar',
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Text(
+                                      producto.nombre,
+                                      maxLines: 3,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 21,
+                                        fontWeight: FontWeight.w800,
+                                        color: _blanco,
+                                        height: 1.22,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    _construirPrecioModal(producto),
+                                    const SizedBox(height: 14),
+                                    Divider(
+                                      color: _doradoElegante.withValues(
+                                        alpha: 0.18,
+                                      ),
+                                      height: 1,
+                                    ),
+                                    const SizedBox(height: 14),
+                                    const Text(
+                                      'Descripción del producto',
+                                      style: TextStyle(
+                                        fontSize: 13.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: _doradoElegante,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Expanded(
+                                      child: SingleChildScrollView(
+                                        child: Text(
+                                          producto.descripcion,
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: _champan.withValues(
+                                              alpha: 0.88,
+                                            ),
+                                            height: 1.5,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    _construirBotonAgregarModal(
+                                      modalContext,
+                                      producto,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Stack(
+                            children: [
+                              Container(
+                                width: double.infinity,
+                                height: altoImagenMovil,
+                                color: _negroSuperficie,
+                                padding: const EdgeInsets.all(10),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(14),
+                                  child: _construirVisualProducto(
+                                    producto,
+                                    iconoSize: 64,
+                                    fit: BoxFit.contain,
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                top: 8,
+                                right: 8,
+                                child: Material(
+                                  color: _negroPortada.withValues(alpha: 0.78),
+                                  shape: const CircleBorder(),
+                                  child: IconButton(
+                                    onPressed: () =>
+                                        Navigator.pop(modalContext),
+                                    icon: const Icon(Icons.close_rounded),
+                                    color: _champan,
+                                    tooltip: 'Cerrar',
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          Flexible(
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.fromLTRB(
+                                18,
+                                14,
+                                18,
+                                12,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _construirBadgeDisponibleModal(),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    producto.nombre,
+                                    style: const TextStyle(
+                                      fontSize: 19,
+                                      fontWeight: FontWeight.w800,
+                                      color: _blanco,
+                                      height: 1.22,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _construirPrecioModal(producto, fontSize: 23),
+                                  const SizedBox(height: 12),
+                                  Divider(
+                                    color: _doradoElegante.withValues(
+                                      alpha: 0.18,
+                                    ),
+                                    height: 1,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  const Text(
+                                    'Descripción del producto',
+                                    style: TextStyle(
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: _doradoElegante,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    producto.descripcion,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: _champan.withValues(alpha: 0.88),
+                                      height: 1.45,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(18, 6, 18, 18),
+                            child: _construirBotonAgregarModal(
+                              modalContext,
+                              producto,
                             ),
                           ),
                         ],
                       ),
-
-                      const SizedBox(height: 16),
-                      const Divider(color: _bordeSuave, height: 1),
-                      const SizedBox(height: 16),
-
-                      const Text(
-                        'Descripción del producto',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: _negroElegante,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        producto.descripcion,
-                        style: const TextStyle(
-                          fontSize: 14.5,
-                          color: _grisTexto,
-                          height: 1.5,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Botón para agregar el producto al carrito
-                      SizedBox(
-                        width: double.infinity,
-                        height: 52,
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.pop(modalContext);
-                            _agregarAlCarrito(producto);
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _rojoMarca,
-                            foregroundColor: _blanco,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                          ),
-                          icon: const Icon(Icons.add_shopping_cart_rounded),
-                          label: const Text(
-                            'Agregar al carrito',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
               ),
             ),
           ),
@@ -1424,26 +1574,33 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
                                 mainAxisAlignment:
                                     MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.auto_awesome_rounded,
-                                        color: _doradoElegante,
-                                        size: 20,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'Nuestra Colección',
-                                        style: TextStyle(
-                                          fontSize: esEscritorio ? 22 : 19,
-                                          fontWeight: FontWeight.w800,
-                                          color: _blanco,
-                                          letterSpacing: 0.2,
+                                  Expanded(
+                                    child: Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.auto_awesome_rounded,
+                                          color: _doradoElegante,
+                                          size: 20,
                                         ),
-                                      ),
-                                    ],
+                                        const SizedBox(width: 8),
+                                        Flexible(
+                                          child: Text(
+                                            'Nuestra Colección',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: esEscritorio ? 22 : 19,
+                                              fontWeight: FontWeight.w800,
+                                              color: _blanco,
+                                              letterSpacing: 0.2,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                  if (!_cargando && _errorCarga == null)
+                                  if (!_cargando && _errorCarga == null) ...[
+                                    const SizedBox(width: 8),
                                     Container(
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 12,
@@ -1466,6 +1623,7 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
                                         ),
                                       ),
                                     ),
+                                  ],
                                 ],
                               ),
                             ),

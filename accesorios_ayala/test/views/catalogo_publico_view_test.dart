@@ -55,8 +55,9 @@ Future<void> _montar(
   Future<BannerConfig> Function()? cargarBanner,
   VideoPlayerController Function(Uri uri)? crearControladorVideo,
   Widget Function(VideoPlayerController controller)? construirVistaVideo,
+  Size tamano = const Size(1400, 3200),
 }) async {
-  tester.view.physicalSize = const Size(1400, 3200);
+  tester.view.physicalSize = tamano;
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -932,6 +933,140 @@ void main() {
 
         await tester.pumpWidget(const SizedBox.shrink());
         expect(fakeCtrl!.disposed, isTrue);
+      },
+    );
+  });
+
+  group('CatalogoPublicoView - modal de detalle de producto', () {
+    testWidgets(
+      'abre diálogo en escritorio con nombre, precio, disponibilidad y cierra con Cerrar',
+      (tester) async {
+        await _montar(
+          tester,
+          () async => _productos,
+          tamano: const Size(1280, 850),
+        );
+
+        final scrollablePrincipal = find
+            .descendant(
+              of: find.byType(CustomScrollView),
+              matching: find.byType(Scrollable),
+            )
+            .first;
+        await tester.scrollUntilVisible(
+          find.text('Pulsera Dorada'),
+          250,
+          scrollable: scrollablePrincipal,
+        );
+        await tester.pump();
+
+        await tester.tap(find.text('Pulsera Dorada'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 250));
+
+        final dialogFinder = find.byType(Dialog);
+        expect(dialogFinder, findsOneWidget);
+        expect(
+          find.descendant(
+            of: dialogFinder,
+            matching: find.text('Pulsera Dorada'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: dialogFinder, matching: find.text('100.00')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: dialogFinder, matching: find.text('Disponible')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: dialogFinder,
+            matching: find.text('Acero inoxidable'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: dialogFinder,
+            matching: find.text('Agregar al carrito'),
+          ),
+          findsOneWidget,
+        );
+
+        await tester.tap(find.byTooltip('Cerrar'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 250));
+        expect(find.byType(Dialog), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'visualización en móvil con descripción larga sin desbordamientos y agrega al carrito',
+      (tester) async {
+        final productoLargo = _p(
+          'p_largo',
+          'Collar Artesanal Largo',
+          descripcion: List.filled(
+            18,
+            'Detalle artesanal elaborado a mano con acabado premium.',
+          ).join(' '),
+        );
+
+        await _montar(
+          tester,
+          () async => [productoLargo],
+          tamano: const Size(390, 720),
+        );
+
+        final scrollablePrincipal = find
+            .descendant(
+              of: find.byType(CustomScrollView),
+              matching: find.byType(Scrollable),
+            )
+            .first;
+        await tester.scrollUntilVisible(
+          find.text('Collar Artesanal Largo'),
+          250,
+          scrollable: scrollablePrincipal,
+        );
+        await tester.pump();
+
+        await tester.tap(find.text('Collar Artesanal Largo'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 250));
+
+        final dialogFinder = find.byType(Dialog);
+        expect(dialogFinder, findsOneWidget);
+        expect(
+          find.descendant(
+            of: dialogFinder,
+            matching: find.text('Collar Artesanal Largo'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: dialogFinder, matching: find.text('100.00')),
+          findsOneWidget,
+        );
+
+        final botonAgregar = find.descendant(
+          of: dialogFinder,
+          matching: find.text('Agregar al carrito'),
+        );
+        expect(botonAgregar, findsOneWidget);
+
+        await tester.tap(botonAgregar);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 250));
+
+        expect(find.byType(Dialog), findsNothing);
+        expect(
+          find.text('"Collar Artesanal Largo" se agregó al carrito.'),
+          findsOneWidget,
+        );
       },
     );
   });
