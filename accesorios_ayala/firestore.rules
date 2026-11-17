@@ -41,6 +41,91 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    function esUrlStorageBannerProyecto(url, carpeta) {
+      return url is string
+        && url.size() > 0
+        && url.size() <= 2048
+        && url.matches(
+          '^https://firebasestorage\\.googleapis\\.com/v0/b/accesorios-ayala\\.firebasestorage\\.app/o/banner%2F'
+          + carpeta
+          + '%2F[^/?#\\s]+(\\?[^\\s]*)?$'
+        );
+    }
+
+    function esItemCarruselValido(item) {
+      return item is map
+        && item.keys().hasAll(['id', 'url', 'orden'])
+        && item.keys().hasOnly(['id', 'url', 'orden'])
+        && item.id is string
+        && item.id.size() > 0
+        && item.id.size() <= 80
+        && item.id.matches('.*\\S.*')
+        && esUrlStorageBannerProyecto(item.url, 'carrusel')
+        && item.orden is int
+        && item.orden >= 0;
+    }
+
+    function esItemCarruselEnIndiceValido(carrusel, i) {
+      return i >= carrusel.size() || esItemCarruselValido(carrusel[i]);
+    }
+
+    function esCarruselBannerValido(carrusel) {
+      return carrusel is list
+        && carrusel.size() <= 15
+        && esItemCarruselEnIndiceValido(carrusel, 0)
+        && esItemCarruselEnIndiceValido(carrusel, 1)
+        && esItemCarruselEnIndiceValido(carrusel, 2)
+        && esItemCarruselEnIndiceValido(carrusel, 3)
+        && esItemCarruselEnIndiceValido(carrusel, 4)
+        && esItemCarruselEnIndiceValido(carrusel, 5)
+        && esItemCarruselEnIndiceValido(carrusel, 6)
+        && esItemCarruselEnIndiceValido(carrusel, 7)
+        && esItemCarruselEnIndiceValido(carrusel, 8)
+        && esItemCarruselEnIndiceValido(carrusel, 9)
+        && esItemCarruselEnIndiceValido(carrusel, 10)
+        && esItemCarruselEnIndiceValido(carrusel, 11)
+        && esItemCarruselEnIndiceValido(carrusel, 12)
+        && esItemCarruselEnIndiceValido(carrusel, 13)
+        && esItemCarruselEnIndiceValido(carrusel, 14);
+    }
+
+    function esBannerConfigValido(data) {
+      return data.keys().hasAll([
+          'activo',
+          'modo',
+          'imagenUrl',
+          'videoUrl',
+          'carrusel',
+          'intervaloSegundos',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'activo',
+          'modo',
+          'imagenUrl',
+          'videoUrl',
+          'carrusel',
+          'intervaloSegundos',
+          'updatedAt'
+        ])
+        && data.activo is bool
+        && data.modo in ['imagen', 'carrusel', 'video']
+        && (data.imagenUrl == null || esUrlStorageBannerProyecto(data.imagenUrl, 'imagen'))
+        && (data.videoUrl == null || esUrlStorageBannerProyecto(data.videoUrl, 'video'))
+        && esCarruselBannerValido(data.carrusel)
+        && data.intervaloSegundos is int
+        && data.intervaloSegundos >= 2
+        && data.intervaloSegundos <= 30
+        && data.updatedAt == request.time;
+    }
+
+    match /configuracion_catalogo/banner {
+      allow read: if true;
+      allow create, update: if isAdmin()
+        && esBannerConfigValido(request.resource.data);
+      allow delete: if false;
+    }
+
     match /clientes/{clienteId} {
       allow read, write: if isAdmin();
     }

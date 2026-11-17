@@ -1,0 +1,57 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isAdmin() {
+      return request.auth != null &&
+        request.auth.uid in [
+          'sK72fiKvY0crBfUzpP4TuqnHhBE3',
+          'PefdVcw7gRayt1hgCUAZt7ejgYO2'
+        ];
+    }
+
+    function esImagenBannerValida() {
+      return request.resource != null
+        && request.resource.size > 0
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    function esVideoBannerValido() {
+      return request.resource != null
+        && request.resource.size > 0
+        && request.resource.size <= 20 * 1024 * 1024
+        && request.resource.contentType.matches('video/(mp4|webm)');
+    }
+
+    match /productos/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /banner/imagen/{archivo} {
+      allow read: if true;
+      allow create: if isAdmin() && esImagenBannerValida();
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    match /banner/carrusel/{archivo} {
+      allow read: if true;
+      allow create: if isAdmin() && esImagenBannerValida();
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    match /banner/video/{archivo} {
+      allow read: if true;
+      allow create: if isAdmin() && esVideoBannerValido();
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

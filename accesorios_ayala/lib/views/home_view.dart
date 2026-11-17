@@ -7,6 +7,7 @@ import '../controllers/auth_controller.dart';
 import '../models/cliente.dart';
 import 'lista_clientes_view.dart';
 import 'lista_productos_view.dart';
+import 'gestion_banner_view.dart';
 import 'gestion_categorias_view.dart';
 import 'pedidos_view.dart';
 import 'seleccionar_cliente_view.dart';
@@ -22,6 +23,11 @@ enum _AccionMenu {
   clientes,
   pedidos,
   cerrarSesion,
+}
+
+enum _SubseccionCatalogo {
+  categorias,
+  banner,
 }
 
 class _OpcionMenu {
@@ -92,6 +98,8 @@ class _HomeViewState extends State<HomeView> {
 
   bool _cerrandoSesion = false;
   _AccionMenu _seccionActiva = _AccionMenu.inicio;
+  _SubseccionCatalogo _subseccionCatalogo = _SubseccionCatalogo.categorias;
+  bool _bannerCatalogoInicializado = false;
   Cliente? _clienteFacturacion;
   List<Map<String, dynamic>>? _productosFacturacion;
   bool _mostrandoVistaPreviaFactura = false;
@@ -390,7 +398,7 @@ class _HomeViewState extends State<HomeView> {
                           else if (_seccionActiva == _AccionMenu.productos)
                             const ListaProductosView(integrado: true)
                           else if (_seccionActiva == _AccionMenu.catalogo)
-                            const GestionCategoriasView(integrado: true)
+                            _construirSeccionCatalogo()
                           else if (_seccionActiva == _AccionMenu.clientes)
                             const ListaClientesView(integrado: true)
                           else if (_seccionActiva == _AccionMenu.pedidos)
@@ -587,6 +595,92 @@ class _HomeViewState extends State<HomeView> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _construirSeccionCatalogo() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: _bordeSuave),
+          ),
+          child: Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _construirBotonSubseccionCatalogo(
+                subseccion: _SubseccionCatalogo.categorias,
+                etiqueta: 'Categorías',
+                icono: Icons.category_outlined,
+              ),
+              _construirBotonSubseccionCatalogo(
+                subseccion: _SubseccionCatalogo.banner,
+                etiqueta: 'Administrar banner',
+                icono: Icons.view_carousel_outlined,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Offstage(
+          offstage: _subseccionCatalogo != _SubseccionCatalogo.categorias,
+          child: const GestionCategoriasView(integrado: true),
+        ),
+        if (_bannerCatalogoInicializado)
+          Offstage(
+            offstage: _subseccionCatalogo != _SubseccionCatalogo.banner,
+            child: const GestionBannerView(integrado: true),
+          ),
+      ],
+    );
+  }
+
+  Widget _construirBotonSubseccionCatalogo({
+    required _SubseccionCatalogo subseccion,
+    required String etiqueta,
+    required IconData icono,
+  }) {
+    final activa = _subseccionCatalogo == subseccion;
+
+    return TextButton.icon(
+      onPressed: () {
+        if (activa) return;
+        setState(() {
+          _subseccionCatalogo = subseccion;
+          if (subseccion == _SubseccionCatalogo.banner) {
+            _bannerCatalogoInicializado = true;
+          }
+        });
+      },
+      icon: Icon(
+        icono,
+        size: 18,
+        color: activa ? _rojoMarca : _grisTexto,
+      ),
+      label: Text(
+        etiqueta,
+        style: TextStyle(
+          fontSize: 13.5,
+          fontWeight: activa ? FontWeight.w700 : FontWeight.w600,
+          color: activa ? _rojoMarca : _negroElegante,
+        ),
+      ),
+      style: TextButton.styleFrom(
+        backgroundColor: activa ? _rosaSuave : Colors.transparent,
+        foregroundColor: _rojoMarca,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(
+            color: activa ? _bordeSuave : Colors.transparent,
+          ),
+        ),
+      ),
     );
   }
 
