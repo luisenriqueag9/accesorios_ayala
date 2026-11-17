@@ -3,11 +3,19 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
 
 import '../controllers/banner_controller.dart';
 import '../models/banner_config.dart';
+import '../utils/blob_url_helper.dart';
 
 typedef SeleccionImagenBanner = ({
+  Uint8List bytes,
+  String contentType,
+  String nombre,
+});
+
+typedef SeleccionVideoBanner = ({
   Uint8List bytes,
   String contentType,
   String nombre,
@@ -59,6 +67,16 @@ class GestionBannerView extends StatefulWidget {
     bool esCarrusel,
   })? onSubirImagen;
 
+  /// Inyección opcional para pruebas. Si es `null` se usa [FilePicker].
+  final Future<SeleccionVideoBanner?> Function()? onSeleccionarVideo;
+
+  /// Inyección opcional para pruebas. Si es `null` se usa
+  /// [BannerController.subirVideoBanner].
+  final Future<String> Function({
+    required Uint8List bytes,
+    required String contentType,
+  })? onSubirVideo;
+
   const GestionBannerView({
     super.key,
     this.integrado = false,
@@ -66,6 +84,8 @@ class GestionBannerView extends StatefulWidget {
     this.onGuardarConfiguracion,
     this.onSeleccionarImagen,
     this.onSubirImagen,
+    this.onSeleccionarVideo,
+    this.onSubirVideo,
   });
 
   @override
@@ -86,6 +106,17 @@ class _GestionBannerViewState extends State<GestionBannerView> {
   String? _imagenPendienteContentType;
   String? _imagenPendienteNombre;
   String? _imagenPendienteUrlSubida;
+  Uint8List? _videoPendienteBytes;
+  String? _videoPendienteContentType;
+  String? _videoPendienteNombre;
+  String? _videoPendienteUrlSubida;
+  VideoPlayerController? _videoController;
+  String? _videoBlobUrl;
+  String? _videoPreviewFuente;
+  bool _inicializandoVideo = false;
+  bool _videoSilenciado = true;
+  String? _errorReproduccionVideo;
+  int _tokenInicializacionVideo = 0;
   int _contadorCarruselLocal = 0;
   bool _cargando = true;
   bool _guardando = false;
@@ -95,8 +126,12 @@ class _GestionBannerViewState extends State<GestionBannerView> {
   bool get _tieneImagenPendiente =>
       _imagenPendienteBytes != null || _imagenPendienteUrlSubida != null;
 
+  bool get _tieneVideoPendiente =>
+      _videoPendienteBytes != null || _videoPendienteUrlSubida != null;
+
   bool get _haySubidasPendientesDeGuardar =>
       _imagenPendienteUrlSubida != null ||
+      _videoPendienteUrlSubida != null ||
       _carruselBorrador.any(
         (item) => item.tieneUrlGuardada && item.bytes != null,
       );
@@ -119,6 +154,7 @@ class _GestionBannerViewState extends State<GestionBannerView> {
 
   bool get _hayCambios {
     return _tieneImagenPendiente ||
+        _tieneVideoPendiente ||
         _carruselModificado ||
         _borrador.activo != _configOriginal.activo ||
         _borrador.modo != _configOriginal.modo ||
@@ -129,6 +165,12 @@ class _GestionBannerViewState extends State<GestionBannerView> {
   void initState() {
     super.initState();
     _cargarConfiguracion();
+  }
+
+  @override
+  void dispose() {
+    _liberarReproductorVideo();
+    super.dispose();
   }
 
   String _mensajeErrorAmigable(Object error, {required String accion}) {
@@ -193,8 +235,10 @@ class _GestionBannerViewState extends State<GestionBannerView> {
         _borrador = borradorInicial;
         _reconstruirCarruselDesdeConfig(config);
         _limpiarBorradorImagenPendiente();
+        _limpiarBorradorVideoPendiente();
         _cargando = false;
       });
+      _sincronizarPreviewVideo(forzar: true);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -209,6 +253,268 @@ class _GestionBannerViewState extends State<GestionBannerView> {
     _imagenPendienteContentType = null;
     _imagenPendienteNombre = null;
     _imagenPendienteUrlSubida = null;
+  }
+
+  void _limpiarBorradorVideoPendiente() {
+    _videoPendienteBytes = null;
+    _videoPendienteContentType = null;
+    _videoPendienteNombre = null;
+    _videoPendienteUrlSubida = null;
+  }
+
+  void _liberarReproductorVideo() {
+    _tokenInicializacionVideo++;
+    final controller = _videoController;
+    final blobUrl = _videoBlobUrl;
+    _videoController = null;
+    _videoBlobUrl = null;
+    _videoPreviewFuente = null;
+    _inicializandoVideo = false;
+    _errorReproduccionVideo = null;
+
+    if (controller != null) {
+      controller.dispose().whenComplete(() {
+        revocarBlobUrlVideo(blobUrl);
+      });
+    } else {
+      revocarBlobUrlVideo(blobUrl);
+    }
+  }
+
+  Future<void> _sincronizarPreviewVideo({bool forzar = false}) async {
+    String? fuente;
+    String? nuevaBlob;
+
+    if (_videoPendienteBytes != null && _videoPendienteContentType != null) {
+      if (forzar || _videoBlobUrl == null) {
+        nuevaBlob = crearBlobUrlVideo(
+          _videoPendienteBytes!,
+          _videoPendienteContentType!,
+        );
+      } else {
+        nuevaBlob = _videoBlobUrl;
+      }
+      fuente = nuevaBlob;
+    } else if (_borrador.videoUrl != null &&
+        _borrador.videoUrl!.trim().isNotEmpty) {
+      fuente = _borrador.videoUrl!.trim();
+    }
+
+    if (fuente == null || fuente.isEmpty) {
+      if (mounted) {
+        setState(_liberarReproductorVideo);
+      } else {
+        _liberarReproductorVideo();
+      }
+      return;
+    }
+
+    if (!forzar &&
+        fuente == _videoPreviewFuente &&
+        (_videoController != null || _inicializandoVideo)) {
+      return;
+    }
+
+    final blobAnterior = _videoBlobUrl;
+    final controllerAnterior = _videoController;
+    _tokenInicializacionVideo++;
+    final tokenActual = _tokenInicializacionVideo;
+
+    _videoController = null;
+    _videoBlobUrl = nuevaBlob;
+    _videoPreviewFuente = fuente;
+
+    if (mounted) {
+      setState(() {
+        _inicializandoVideo = true;
+        _errorReproduccionVideo = null;
+        _videoSilenciado = true;
+      });
+    }
+
+    if (controllerAnterior != null) {
+      try {
+        await controllerAnterior.dispose();
+      } catch (_) {}
+    }
+    if (blobAnterior != null && blobAnterior != nuevaBlob) {
+      revocarBlobUrlVideo(blobAnterior);
+    }
+
+    if (!mounted || tokenActual != _tokenInicializacionVideo) {
+      if (nuevaBlob != null && nuevaBlob != _videoBlobUrl) {
+        revocarBlobUrlVideo(nuevaBlob);
+      }
+      return;
+    }
+
+    final controller = VideoPlayerController.networkUrl(Uri.parse(fuente));
+    try {
+      await controller.initialize();
+      if (!mounted || tokenActual != _tokenInicializacionVideo) {
+        await controller.dispose();
+        if (nuevaBlob != null && nuevaBlob != _videoBlobUrl) {
+          revocarBlobUrlVideo(nuevaBlob);
+        }
+        return;
+      }
+
+      await controller.setLooping(true);
+      await controller.setVolume(0.0);
+      if (!mounted || tokenActual != _tokenInicializacionVideo) {
+        await controller.dispose();
+        if (nuevaBlob != null && nuevaBlob != _videoBlobUrl) {
+          revocarBlobUrlVideo(nuevaBlob);
+        }
+        return;
+      }
+
+      setState(() {
+        _videoController = controller;
+        _inicializandoVideo = false;
+        _videoSilenciado = true;
+        _errorReproduccionVideo = null;
+      });
+    } catch (_) {
+      try {
+        await controller.dispose();
+      } catch (_) {}
+      if (!mounted || tokenActual != _tokenInicializacionVideo) {
+        if (nuevaBlob != null && nuevaBlob != _videoBlobUrl) {
+          revocarBlobUrlVideo(nuevaBlob);
+        }
+        return;
+      }
+
+      setState(() {
+        _videoController = null;
+        _inicializandoVideo = false;
+        _errorReproduccionVideo =
+            'No se pudo inicializar el reproductor de video en este navegador, pero puedes guardarlo normalmente.';
+      });
+    }
+  }
+
+  Future<void> _alternarReproduccionVideo() async {
+    final controller = _videoController;
+    if (controller == null || !controller.value.isInitialized) return;
+
+    try {
+      if (controller.value.isPlaying) {
+        await controller.pause();
+      } else {
+        await controller.play();
+      }
+      if (!mounted || controller != _videoController) return;
+    } catch (_) {
+      if (!mounted || controller != _videoController) return;
+      setState(() {
+        _errorReproduccionVideo =
+            'El navegador no pudo iniciar la reproducción de este video.';
+      });
+    }
+  }
+
+  Future<void> _alternarSilencioVideo() async {
+    final controller = _videoController;
+    if (controller == null || !controller.value.isInitialized) return;
+
+    final nuevoSilenciado = !_videoSilenciado;
+    await controller.setVolume(nuevoSilenciado ? 0.0 : 1.0);
+    if (!mounted || controller != _videoController) return;
+    setState(() {
+      _videoSilenciado = nuevoSilenciado;
+    });
+  }
+
+  void _descartarVideoPendiente() {
+    if (_cargando || _guardando || !_tieneVideoPendiente) return;
+    setState(_limpiarBorradorVideoPendiente);
+    _sincronizarPreviewVideo(forzar: true);
+  }
+
+  String? _inferirMimeVideo(String? nombreArchivo, String? extension) {
+    final extRaw = (extension ?? '').trim().toLowerCase();
+    final ext = extRaw.isNotEmpty
+        ? extRaw
+        : (nombreArchivo != null && nombreArchivo.contains('.')
+              ? nombreArchivo.split('.').last.trim().toLowerCase()
+              : '');
+
+    switch (ext) {
+      case 'mp4':
+        return 'video/mp4';
+      case 'webm':
+        return 'video/webm';
+      default:
+        return null;
+    }
+  }
+
+  String _formatearTamanoArchivo(int bytes) {
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(2)} MB';
+    }
+    return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  }
+
+  Future<void> _seleccionarVideo() async {
+    if (_cargando || _guardando) return;
+
+    try {
+      final SeleccionVideoBanner? seleccion;
+      if (widget.onSeleccionarVideo != null) {
+        seleccion = await widget.onSeleccionarVideo!();
+      } else {
+        final resultado = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: const ['mp4', 'webm'],
+          withData: true,
+        );
+        if (resultado == null || resultado.files.isEmpty) {
+          return;
+        }
+
+        final archivo = resultado.files.single;
+        final bytes = archivo.bytes;
+        if (bytes == null) {
+          throw StateError(
+            'No se pudo leer el contenido del video seleccionado.',
+          );
+        }
+
+        final mime = _inferirMimeVideo(archivo.name, archivo.extension);
+        if (mime == null) {
+          throw ArgumentError(
+            'Formato de video no permitido. Usa MP4 o WebM.',
+          );
+        }
+
+        seleccion = (bytes: bytes, contentType: mime, nombre: archivo.name);
+      }
+
+      if (seleccion == null || !mounted) return;
+
+      final mimeNormalizado = seleccion.contentType.trim().toLowerCase();
+      BannerController.validarVideoBanner(
+        bytes: seleccion.bytes,
+        contentType: mimeNormalizado,
+      );
+
+      setState(() {
+        _videoPendienteBytes = seleccion!.bytes;
+        _videoPendienteContentType = mimeNormalizado;
+        _videoPendienteNombre = seleccion.nombre;
+        _videoPendienteUrlSubida = null;
+      });
+      _sincronizarPreviewVideo(forzar: true);
+    } catch (e) {
+      if (!mounted) return;
+      _mostrarSnackBar(
+        _mensajeErrorAmigable(e, accion: 'validar el video'),
+        esError: true,
+      );
+    }
   }
 
   void _reconstruirCarruselDesdeConfig(BannerConfig config) {
@@ -409,6 +715,11 @@ class _GestionBannerViewState extends State<GestionBannerView> {
   void _cambiarModo(ModoBannerCatalogo nuevoModo) {
     if (_cargando || _guardando || _borrador.modo == nuevoModo) return;
 
+    if (_borrador.modo == ModoBannerCatalogo.video &&
+        nuevoModo != ModoBannerCatalogo.video) {
+      _videoController?.pause();
+    }
+
     final candidato = _borrador.copyWith(modo: nuevoModo);
     setState(() {
       _borrador = candidato.tieneContenidoParaModoActivo
@@ -459,7 +770,7 @@ class _GestionBannerViewState extends State<GestionBannerView> {
           return AlertDialog(
             title: const Text('Descartar cambios'),
             content: const Text(
-              'Ya se subieron imágenes a Firebase Storage en un intento anterior sin completar el guardado en Firestore. Si descartas ahora, esos archivos permanecerán en Storage sin referencia en el catálogo.\n\n¿Deseas descartar los cambios y recargar la configuración vigente?',
+              'Ya se subieron archivos a Firebase Storage en un intento anterior sin completar el guardado en Firestore. Si descartas ahora, esos archivos permanecerán en Storage sin referencia en el catálogo.\n\n¿Deseas descartar los cambios y recargar la configuración vigente?',
             ),
             actions: [
               TextButton(
@@ -495,6 +806,9 @@ class _GestionBannerViewState extends State<GestionBannerView> {
       } else if (pendientesCarrusel.isNotEmpty) {
         _textoProgresoGuardado =
             'Subiendo imagen 1 de ${pendientesCarrusel.length}...';
+      } else if (_videoPendienteBytes != null &&
+          _videoPendienteUrlSubida == null) {
+        _textoProgresoGuardado = 'Subiendo video...';
       } else {
         _textoProgresoGuardado = 'Guardando...';
       }
@@ -555,6 +869,34 @@ class _GestionBannerViewState extends State<GestionBannerView> {
         );
       }
 
+      String? urlVideoFinal = _borrador.videoUrl;
+
+      if (_videoPendienteUrlSubida != null) {
+        urlVideoFinal = _videoPendienteUrlSubida;
+      } else if (_videoPendienteBytes != null &&
+          _videoPendienteContentType != null) {
+        setState(() {
+          _textoProgresoGuardado = 'Subiendo video...';
+        });
+
+        final subidorVideo =
+            widget.onSubirVideo ??
+            ({required Uint8List bytes, required String contentType}) =>
+                BannerController.subirVideoBanner(
+                  bytes: bytes,
+                  contentType: contentType,
+                );
+        final urlSubida = await subidorVideo(
+          bytes: _videoPendienteBytes!,
+          contentType: _videoPendienteContentType!,
+        );
+        if (!mounted) return;
+
+        // Conserva la URL subida para reutilizarla si falla Firestore y el usuario reintenta.
+        _videoPendienteUrlSubida = urlSubida;
+        urlVideoFinal = urlSubida;
+      }
+
       setState(() {
         _textoProgresoGuardado = 'Guardando configuración...';
       });
@@ -562,6 +904,7 @@ class _GestionBannerViewState extends State<GestionBannerView> {
       final carruselFinal = _convertirCarruselBorradorParaGuardar();
       final candidato = _borrador.copyWith(
         imagenUrl: urlImagenFinal,
+        videoUrl: urlVideoFinal,
         carrusel: carruselFinal,
       );
       final configAGuardar = candidato.tieneContenidoParaModoActivo
@@ -587,8 +930,10 @@ class _GestionBannerViewState extends State<GestionBannerView> {
         _borrador = guardada;
         _reconstruirCarruselDesdeConfig(guardada);
         _limpiarBorradorImagenPendiente();
+        _limpiarBorradorVideoPendiente();
         _guardando = false;
       });
+      _sincronizarPreviewVideo(forzar: true);
       _mostrarSnackBar('Configuración del banner guardada correctamente.');
     } catch (e) {
       if (!mounted) return;
@@ -1341,6 +1686,354 @@ class _GestionBannerViewState extends State<GestionBannerView> {
     );
   }
 
+  Widget _construirSeccionVideo() {
+    final tieneGuardado =
+        _borrador.videoUrl != null && _borrador.videoUrl!.isNotEmpty;
+    final tienePendiente = _videoPendienteBytes != null;
+    final formatoPendiente = _videoPendienteContentType
+        ?.replaceFirst('video/', '')
+        .toUpperCase();
+    final formatoGuardado = tieneGuardado
+        ? (_borrador.videoUrl!.toLowerCase().contains('.webm') ? 'WEBM' : 'MP4')
+        : null;
+
+    return _construirTarjetaBase(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Video del banner',
+                  style: TextStyle(
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w700,
+                    color: _negroElegante,
+                  ),
+                ),
+              ),
+              if (tienePendiente)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF8E1),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFFFFE082)),
+                  ),
+                  child: Text(
+                    _videoPendienteUrlSubida != null
+                        ? 'Subida pendiente de guardar'
+                        : 'Pendiente de guardar',
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFFE65100),
+                    ),
+                  ),
+                )
+              else if (tieneGuardado)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F5E9),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Text(
+                    'Video guardado',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF2E7D32),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Formatos permitidos: MP4 o WebM (máximo 20 MB). El video se subirá al pulsar Guardar cambios.',
+            style: TextStyle(fontSize: 13, color: _grisTexto),
+          ),
+          const SizedBox(height: 14),
+          if (_inicializandoVideo)
+            Container(
+              width: double.infinity,
+              height: 200,
+              decoration: BoxDecoration(
+                color: const Color(0xFF141414),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: _bordeSuave),
+              ),
+              child: const Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(color: _rojoMarca),
+                  SizedBox(height: 12),
+                  Text(
+                    'Cargando vista previa de video...',
+                    style: TextStyle(fontSize: 13, color: Colors.white70),
+                  ),
+                ],
+              ),
+            )
+          else if (_videoController != null &&
+              _videoController!.value.isInitialized) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                width: double.infinity,
+                constraints: const BoxConstraints(maxHeight: 240),
+                color: const Color(0xFF141414),
+                alignment: Alignment.center,
+                child: AspectRatio(
+                  aspectRatio: _videoController!.value.aspectRatio > 0
+                      ? _videoController!.value.aspectRatio
+                      : 16 / 9,
+                  child: VideoPlayer(_videoController!),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            ValueListenableBuilder<VideoPlayerValue>(
+              valueListenable: _videoController!,
+              builder: (context, valor, _) {
+                final reproduciendo = valor.isPlaying;
+                return Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: _alternarReproduccionVideo,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _negroElegante,
+                        side: const BorderSide(color: _bordeSuave),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      icon: Icon(
+                        reproduciendo
+                            ? Icons.pause_rounded
+                            : Icons.play_arrow_rounded,
+                        size: 20,
+                      ),
+                      label: Text(reproduciendo ? 'Pausar' : 'Reproducir'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _alternarSilencioVideo,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _negroElegante,
+                        side: const BorderSide(color: _bordeSuave),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      icon: Icon(
+                        _videoSilenciado
+                            ? Icons.volume_off_rounded
+                            : Icons.volume_up_rounded,
+                        size: 19,
+                      ),
+                      label: Text(
+                        _videoSilenciado ? 'Activar sonido' : 'Silenciar',
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+          ] else if (_errorReproduccionVideo != null) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF8E1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFFFE082)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.warning_amber_rounded,
+                    color: Color(0xFFF57C00),
+                    size: 19,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _errorReproduccionVideo!,
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        color: _negroElegante,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          if (tienePendiente || tieneGuardado)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: _rosaSuave,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: _bordeSuave),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: _bordeSuave),
+                    ),
+                    child: const Icon(
+                      Icons.videocam_rounded,
+                      color: _rojoMarca,
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          tienePendiente
+                              ? (_videoPendienteNombre ?? 'Video seleccionado')
+                              : 'Video guardado en Firebase',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: _negroElegante,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          tienePendiente
+                              ? 'Formato: ${formatoPendiente ?? 'Video'} · Tamaño: ${_formatearTamanoArchivo(_videoPendienteBytes!.length)}'
+                              : 'Formato: ${formatoGuardado ?? 'Video'} · Listo para publicar en modo Video',
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            color: _grisTexto,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          tienePendiente
+                              ? (_videoPendienteUrlSubida != null
+                                    ? 'Estado: Subido a Storage (pendiente de guardar en Firestore)'
+                                    : 'Estado: Pendiente de subir y guardar')
+                              : 'Estado: Guardado en Firestore',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: tienePendiente
+                                ? const Color(0xFFE65100)
+                                : const Color(0xFF2E7D32),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
+              decoration: BoxDecoration(
+                color: _rosaSuave,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: _bordeSuave),
+              ),
+              child: const Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.videocam_outlined,
+                    size: 40,
+                    color: _rojoMarca,
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'No hay ningún video seleccionado.',
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      color: _grisTexto,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              ElevatedButton.icon(
+                onPressed: _guardando ? null : _seleccionarVideo,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _rojoMarca,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                icon: const Icon(Icons.video_file_outlined, size: 18),
+                label: Text(
+                  tienePendiente || tieneGuardado
+                      ? 'Reemplazar video'
+                      : 'Seleccionar video',
+                ),
+              ),
+              if (_tieneVideoPendiente)
+                OutlinedButton.icon(
+                  onPressed: _guardando ? null : _descartarVideoPendiente,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _negroElegante,
+                    side: const BorderSide(color: _bordeSuave),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  label: const Text('Descartar selección'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _construirEstadoContenidoModos() {
     final tieneImagen =
         _borrador.imagenUrl != null && _borrador.imagenUrl!.isNotEmpty;
@@ -1591,6 +2284,9 @@ class _GestionBannerViewState extends State<GestionBannerView> {
             const SizedBox(height: 16),
           ] else if (_borrador.modo == ModoBannerCatalogo.carrusel) ...[
             _construirSeccionCarrusel(),
+            const SizedBox(height: 16),
+          ] else if (_borrador.modo == ModoBannerCatalogo.video) ...[
+            _construirSeccionVideo(),
             const SizedBox(height: 16),
           ],
           _construirEstadoContenidoModos(),
