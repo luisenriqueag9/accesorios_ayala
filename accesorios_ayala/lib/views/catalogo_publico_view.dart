@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../controllers/banner_controller.dart';
 import '../controllers/categoria_controller.dart';
 import '../controllers/producto_controller.dart';
+import '../models/banner_config.dart';
 import '../models/categoria.dart';
 import '../models/producto.dart';
 
@@ -54,10 +56,15 @@ class CatalogoPublicoView extends StatefulWidget {
   /// [CategoriaController.cargarCategorias] con `soloVisibles: true`.
   final Future<List<Categoria>> Function()? cargarCategorias;
 
+  /// Inyección opcional para pruebas. Si es `null` se usa
+  /// [BannerController.cargarConfiguracion].
+  final Future<BannerConfig> Function()? cargarBanner;
+
   const CatalogoPublicoView({
     super.key,
     this.cargarProductos,
     this.cargarCategorias,
+    this.cargarBanner,
   });
 
   @override
@@ -95,6 +102,12 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
   String? _errorCategorias;
   String? _categoriaSeleccionadaId;
 
+  // Estado independiente para la configuración del banner (sin cambios visuales en esta etapa).
+  // ignore: unused_field
+  BannerConfig _bannerConfig = BannerConfig.inicial();
+  // ignore: unused_field
+  bool _cargandoBanner = true;
+
   bool get _hayProductosVisibles => _productos.any((p) => p.visibleCatalogo);
 
   // Estado local en memoria para el carrito de compras (identificado por ID)
@@ -120,6 +133,7 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
     super.initState();
     _cargarProductos();
     _cargarCategorias();
+    _cargarBanner();
   }
 
   @override
@@ -202,6 +216,25 @@ class _CatalogoPublicoViewState extends State<CatalogoPublicoView> {
         _errorCategorias =
             'No se pudieron cargar las categorías en este momento.';
         _cargandoCategorias = false;
+      });
+    }
+  }
+
+  Future<void> _cargarBanner() async {
+    try {
+      final config = await (widget.cargarBanner ??
+          BannerController.cargarConfiguracion)();
+      if (!mounted) return;
+
+      setState(() {
+        _bannerConfig = config.debeMostrarse ? config : BannerConfig.inicial();
+        _cargandoBanner = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _bannerConfig = BannerConfig.inicial();
+        _cargandoBanner = false;
       });
     }
   }

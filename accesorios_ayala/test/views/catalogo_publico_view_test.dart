@@ -1,3 +1,4 @@
+import 'package:accesorios_ayala/models/banner_config.dart';
 import 'package:accesorios_ayala/models/categoria.dart';
 import 'package:accesorios_ayala/models/producto.dart';
 import 'package:accesorios_ayala/views/catalogo_publico_view.dart';
@@ -50,6 +51,7 @@ Future<void> _montar(
   WidgetTester tester,
   Future<List<Producto>> Function() cargar, {
   Future<List<Categoria>> Function()? cargarCategorias,
+  Future<BannerConfig> Function()? cargarBanner,
 }) async {
   tester.view.physicalSize = const Size(1400, 3200);
   tester.view.devicePixelRatio = 1.0;
@@ -61,6 +63,7 @@ Future<void> _montar(
       home: CatalogoPublicoView(
         cargarProductos: cargar,
         cargarCategorias: cargarCategorias ?? () async => const [],
+        cargarBanner: cargarBanner ?? () async => BannerConfig.inicial(),
       ),
     ),
   );
