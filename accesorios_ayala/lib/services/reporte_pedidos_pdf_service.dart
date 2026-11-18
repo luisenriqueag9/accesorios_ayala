@@ -308,11 +308,12 @@ class ReportePedidosPdfService {
             pw.Table(
               border: pw.TableBorder.all(color: _bordeSuave, width: 0.7),
               columnWidths: const {
-                0: pw.FlexColumnWidth(1.6),
-                1: pw.FlexColumnWidth(2.6),
-                2: pw.FlexColumnWidth(1.9),
-                3: pw.FlexColumnWidth(1.4),
-                4: pw.FlexColumnWidth(1.6),
+                0: pw.FlexColumnWidth(1.45),
+                1: pw.FlexColumnWidth(2.35),
+                2: pw.FlexColumnWidth(1.75),
+                3: pw.FlexColumnWidth(1.45),
+                4: pw.FlexColumnWidth(1.30),
+                5: pw.FlexColumnWidth(1.70),
               },
               children: [
                 pw.TableRow(
@@ -322,7 +323,8 @@ class ReportePedidosPdfService {
                     _celdaEncabezado('N.° Pedido'),
                     _celdaEncabezado('Cliente'),
                     _celdaEncabezado('Fecha'),
-                    _celdaEncabezado('Estado'),
+                    _celdaEncabezado('Producción'),
+                    _celdaEncabezado('Envío'),
                     _celdaEncabezado('Importe (L.)', alinearDerecha: true),
                   ],
                 ),
@@ -376,14 +378,7 @@ class ReportePedidosPdfService {
 
           pw.SizedBox(height: 14),
 
-          pw.Text(
-            'Los importes representan el valor de los pedidos registrados, no necesariamente dinero recibido.',
-            style: pw.TextStyle(
-              fontSize: 9,
-              fontStyle: pw.FontStyle.italic,
-              color: _grisTexto,
-            ),
-          ),
+          
         ],
       ),
     );
@@ -429,7 +424,7 @@ class ReportePedidosPdfService {
     bool alinearDerecha = false,
   }) {
     return pw.Padding(
-      padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+      padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 7),
       child: pw.Text(
         texto,
         textAlign: alinearDerecha ? pw.TextAlign.right : pw.TextAlign.left,
@@ -457,6 +452,7 @@ class ReportePedidosPdfService {
         _celdaDato(numero, negrita: true),
         _celdaDato(pedido.clienteNombre),
         _celdaDato(_formatearFechaHora(creadoHn)),
+        _celdaDato(pedido.estadoProduccion.etiqueta),
         _celdaDato(pedido.estadoEnvio.etiqueta),
         _celdaDato(
           formatearLempiras(pedido.totalEstimado),
@@ -473,7 +469,7 @@ class ReportePedidosPdfService {
     bool negrita = false,
   }) {
     return pw.Padding(
-      padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 6),
       child: pw.Text(
         texto,
         textAlign: alinearDerecha ? pw.TextAlign.right : pw.TextAlign.left,
