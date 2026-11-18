@@ -1,5 +1,17 @@
 {
   "projects": {
     "default": "accesorios-ayala"
+  },
+  "targets": {
+    "accesorios-ayala": {
+      "hosting": {
+        "admin": [
+          "accesorios-ayala"
+        ],
+        "catalogo": [
+          "accesorios-ayala-catalogo"
+        ]
+      }
+    }
   }
 }
