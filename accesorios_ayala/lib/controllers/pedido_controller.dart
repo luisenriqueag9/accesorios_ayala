@@ -1109,6 +1109,81 @@ class PedidoController {
     );
   }
 
+  /// Marca un pedido con producción terminada como enviado en servidor mediante
+  /// la Cloud Function `marcarPedidoComoEnviado` (región `us-central1`) y
+  /// recarga el documento actualizado del pedido desde Firestore.
+  static Future<Pedido> marcarPedidoComoEnviado({
+    required String pedidoId,
+    required DateTime? updatedAtEsperado,
+    FirebaseFirestore? firestore,
+    FirebaseFunctions? functions,
+  }) async {
+    final idLimpio = pedidoId.trim();
+    if (idLimpio.isEmpty) {
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.datosInvalidos,
+        mensaje: 'El identificador del pedido es obligatorio.',
+      );
+    }
+
+    if (updatedAtEsperado == null) {
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.datosInvalidos,
+        mensaje:
+            'Se requiere la versión actual del pedido (updatedAt) para actualizar el envío de forma segura.',
+      );
+    }
+
+    final db = firestore ?? FirebaseFirestore.instance;
+    final pedidoRef = db.collection(collection).doc(idLimpio);
+    final fnClient =
+        functions ?? FirebaseFunctions.instanceFor(region: 'us-central1');
+
+    try {
+      final callable = fnClient.httpsCallable('marcarPedidoComoEnviado');
+      await callable.call<dynamic>(<String, dynamic>{
+        'pedidoId': idLimpio,
+        'updatedAtEsperadoMs': updatedAtEsperado.toUtc().millisecondsSinceEpoch,
+      });
+    } on PedidoControllerException {
+      rethrow;
+    } on FirebaseFunctionsException catch (e) {
+      throw _mapearFirebaseFunctionsException(e);
+    } catch (e) {
+      throw PedidoControllerException(
+        tipo: TipoErrorPedido.errorTransaccion,
+        mensaje: 'No se pudo marcar el pedido como enviado: $e',
+      );
+    }
+
+    try {
+      final confirmadoSnap = await pedidoRef.get();
+      final data = confirmadoSnap.data();
+      if (confirmadoSnap.exists && data != null) {
+        return Pedido.fromMap(data, id: confirmadoSnap.id);
+      }
+    } on FirebaseException catch (e) {
+      throw PedidoControllerException(
+        tipo: TipoErrorPedido.actualizacionConfirmadaSinRecarga,
+        mensaje:
+            'El envío se registró en Firestore, pero no se pudo recuperar el pedido actualizado. Recarga la lista para confirmar el estado.',
+        codigoFirebase: e.code,
+      );
+    } catch (_) {
+      throw const PedidoControllerException(
+        tipo: TipoErrorPedido.actualizacionConfirmadaSinRecarga,
+        mensaje:
+            'El envío se registró en Firestore, pero no se pudo recuperar el pedido actualizado. Recarga la lista para confirmar el estado.',
+      );
+    }
+
+    throw const PedidoControllerException(
+      tipo: TipoErrorPedido.actualizacionConfirmadaSinRecarga,
+      mensaje:
+          'El envío se registró en Firestore, pero el documento actualizado no pudo recuperarse. Recarga la lista para confirmar el estado.',
+    );
+  }
+
   static PedidoControllerException _mapearFirebaseFunctionsException(
     FirebaseFunctionsException e,
   ) {

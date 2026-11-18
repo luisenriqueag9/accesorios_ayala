@@ -739,6 +739,210 @@ void main() {
     );
   });
 
+  group('PedidoController.marcarPedidoComoEnviado', () {
+    test('rechaza pedidoId vacío o updatedAtEsperado nulo sin invocar Cloud Function', () async {
+      var invocado = false;
+      final fakeFunctions = _FakeFirebaseFunctions(
+        onCall: (_, _) async {
+          invocado = true;
+          return {'ok': true};
+        },
+      );
+      final fakeFirestore = _FakeFirestore(documentoPedido: const {});
+
+      await expectLater(
+        () => PedidoController.marcarPedidoComoEnviado(
+          pedidoId: '   ',
+          updatedAtEsperado: DateTime.utc(2026, 11, 18),
+          firestore: fakeFirestore,
+          functions: fakeFunctions,
+        ),
+        throwsA(
+          isA<PedidoControllerException>().having(
+            (e) => e.tipo,
+            'tipo',
+            TipoErrorPedido.datosInvalidos,
+          ),
+        ),
+      );
+
+      await expectLater(
+        () => PedidoController.marcarPedidoComoEnviado(
+          pedidoId: 'ped-1',
+          updatedAtEsperado: null,
+          firestore: fakeFirestore,
+          functions: fakeFunctions,
+        ),
+        throwsA(
+          isA<PedidoControllerException>().having(
+            (e) => e.tipo,
+            'tipo',
+            TipoErrorPedido.datosInvalidos,
+          ),
+        ),
+      );
+
+      expect(invocado, isFalse);
+      expect(fakeFirestore.huboEscriturasOTransacciones, isFalse);
+    });
+
+    test(
+      'invoca marcarPedidoComoEnviado con pedidoId y updatedAtEsperadoMs, recarga desde Firestore y no escribe en cliente',
+      () async {
+        final updatedAtLocal = DateTime(2026, 11, 18, 10, 15);
+        final esperadoMs = updatedAtLocal.toUtc().millisecondsSinceEpoch;
+        final fechaEnvio = DateTime.utc(2026, 11, 18, 18, 30);
+        final pedidoEnviadoMap = {
+          ..._crearBorradorValido(
+            numeroPedido: 'PED-0001',
+            facturado: true,
+            ventaId: 'FAC-0001',
+            facturaNumero: 'FAC-0001',
+          ).toMap(),
+          'id': 'ped-1',
+          'estadoEnvio': 'enviado',
+          'fechaEnvio': Timestamp.fromDate(fechaEnvio),
+          'updatedAt': Timestamp.fromDate(fechaEnvio),
+        };
+
+        final fakeFunctions = _FakeFirebaseFunctions(
+          onCall: (name, args) async {
+            return {
+              'ok': true,
+              'pedidoId': 'ped-1',
+              'estadoEnvio': 'enviado',
+            };
+          },
+        );
+        final fakeFirestore = _FakeFirestore(
+          documentoPedido: pedidoEnviadoMap,
+        );
+
+        final resultado = await PedidoController.marcarPedidoComoEnviado(
+          pedidoId: ' ped-1 ',
+          updatedAtEsperado: updatedAtLocal,
+          firestore: fakeFirestore,
+          functions: fakeFunctions,
+        );
+
+        expect(fakeFunctions.ultimaFuncion, 'marcarPedidoComoEnviado');
+        expect(fakeFunctions.ultimoPayload, {
+          'pedidoId': 'ped-1',
+          'updatedAtEsperadoMs': esperadoMs,
+        });
+        expect(fakeFunctions.ultimoPayload!.keys, hasLength(2));
+        expect(fakeFirestore.coleccionesConsultadas, ['pedidos']);
+        expect(fakeFirestore.huboEscriturasOTransacciones, isFalse);
+        expect(resultado.id, 'ped-1');
+        expect(resultado.estadoEnvio, EstadoEnvioPedido.enviado);
+        expect(resultado.fechaEnvio?.toUtc(), fechaEnvio);
+        expect(resultado.facturado, isTrue);
+      },
+    );
+
+    test(
+      'traduce errores de autenticación, permisos, concurrencia y red desde FirebaseFunctionsException',
+      () async {
+        final casos =
+            <({String code, String message, TipoErrorPedido esperado})>[
+              (
+                code: 'unauthenticated',
+                message: 'Se requiere autenticación.',
+                esperado: TipoErrorPedido.permisosInsuficientes,
+              ),
+              (
+                code: 'permission-denied',
+                message: 'No tienes permisos administrativos.',
+                esperado: TipoErrorPedido.permisosInsuficientes,
+              ),
+              (
+                code: 'not-found',
+                message: 'El pedido no existe.',
+                esperado: TipoErrorPedido.pedidoNoEncontrado,
+              ),
+              (
+                code: 'failed-precondition',
+                message:
+                    'Este pedido fue modificado por otro administrador. Recárgalo antes de marcarlo como enviado.',
+                esperado: TipoErrorPedido.conflictoConcurrencia,
+              ),
+              (
+                code: 'failed-precondition',
+                message: 'Todos los artículos del pedido deben estar terminados.',
+                esperado: TipoErrorPedido.datosInvalidos,
+              ),
+              (
+                code: 'unavailable',
+                message: 'Sin conexión.',
+                esperado: TipoErrorPedido.errorConexion,
+              ),
+            ];
+
+        for (final caso in casos) {
+          final fakeFunctions = _FakeFirebaseFunctions(
+            onCall: (_, _) async {
+              throw FirebaseFunctionsException(
+                code: caso.code,
+                message: caso.message,
+              );
+            },
+          );
+          final fakeFirestore = _FakeFirestore(documentoPedido: const {});
+
+          await expectLater(
+            () => PedidoController.marcarPedidoComoEnviado(
+              pedidoId: 'ped-1',
+              updatedAtEsperado: DateTime.utc(2026, 11, 18),
+              firestore: fakeFirestore,
+              functions: fakeFunctions,
+            ),
+            throwsA(
+              isA<PedidoControllerException>()
+                  .having((e) => e.tipo, 'tipo', caso.esperado)
+                  .having((e) => e.codigoFirebase, 'codigoFirebase', caso.code),
+            ),
+          );
+        }
+      },
+    );
+
+    test(
+      'informa actualizacionConfirmadaSinRecarga si falla la recarga posterior tras marcar como enviado',
+      () async {
+        final fakeFunctions = _FakeFirebaseFunctions(
+          onCall: (_, _) async => {
+            'ok': true,
+            'pedidoId': 'ped-1',
+            'estadoEnvio': 'enviado',
+          },
+        );
+        final fakeFirestore = _FakeFirestore(
+          errorEnGet: FirebaseException(
+            plugin: 'cloud_firestore',
+            code: 'unavailable',
+            message: 'Sin conexión',
+          ),
+        );
+
+        await expectLater(
+          () => PedidoController.marcarPedidoComoEnviado(
+            pedidoId: 'ped-1',
+            updatedAtEsperado: DateTime.utc(2026, 11, 18),
+            firestore: fakeFirestore,
+            functions: fakeFunctions,
+          ),
+          throwsA(
+            isA<PedidoControllerException>().having(
+              (e) => e.tipo,
+              'tipo',
+              TipoErrorPedido.actualizacionConfirmadaSinRecarga,
+            ),
+          ),
+        );
+      },
+    );
+  });
+
   group('PedidoController.cargarPedidoPorFactura', () {
     test('encuentra el pedido por facturaNumero usando limit(1) sin escribir', () async {
       final db = _FakeFirestore(
