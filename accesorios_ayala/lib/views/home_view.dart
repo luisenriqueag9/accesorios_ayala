@@ -98,6 +98,7 @@ class _HomeViewState extends State<HomeView> {
 
   bool _cerrandoSesion = false;
   _AccionMenu _seccionActiva = _AccionMenu.inicio;
+  final List<_AccionMenu> _historialSecciones = [];
   _SubseccionCatalogo _subseccionCatalogo = _SubseccionCatalogo.categorias;
   bool _bannerCatalogoInicializado = false;
   Cliente? _clienteFacturacion;
@@ -163,56 +164,75 @@ class _HomeViewState extends State<HomeView> {
     });
   }
 
+  bool get _puedeRegresar => _seccionActiva != _AccionMenu.inicio;
+
+  void _cambiarSeccion(_AccionMenu destino) {
+    if (_seccionActiva == destino) return;
+
+    setState(() {
+      if (destino == _AccionMenu.inicio) {
+        _historialSecciones.clear();
+      } else if (_historialSecciones.isEmpty ||
+          _historialSecciones.last != _seccionActiva) {
+        _historialSecciones.add(_seccionActiva);
+      }
+      _seccionActiva = destino;
+    });
+  }
+
+  void _regresar() {
+    if (!_puedeRegresar) return;
+
+    if (_seccionActiva == _AccionMenu.recibos && _clienteFacturacion != null) {
+      if (_mostrandoVistaPreviaFactura && _productosFacturacion != null) {
+        setState(() {
+          _mostrandoVistaPreviaFactura = false;
+        });
+        return;
+      }
+
+      setState(() {
+        _clienteFacturacion = null;
+        _mostrandoVistaPreviaFactura = false;
+      });
+      return;
+    }
+
+    setState(() {
+      if (_historialSecciones.isNotEmpty) {
+        final anterior = _historialSecciones.removeLast();
+        _seccionActiva = anterior;
+        if (anterior == _AccionMenu.inicio) {
+          _historialSecciones.clear();
+        }
+      } else {
+        _seccionActiva = _AccionMenu.inicio;
+      }
+    });
+  }
+
   void _manejarAccionMenu(_AccionMenu accion, BuildContext context) {
     switch (accion) {
       case _AccionMenu.inicio:
-        if (_seccionActiva != _AccionMenu.inicio) {
-          setState(() {
-            _seccionActiva = _AccionMenu.inicio;
-          });
-        }
+        _cambiarSeccion(_AccionMenu.inicio);
         return;
       case _AccionMenu.productos:
-        if (_seccionActiva != _AccionMenu.productos) {
-          setState(() {
-            _seccionActiva = _AccionMenu.productos;
-          });
-        }
+        _cambiarSeccion(_AccionMenu.productos);
         return;
       case _AccionMenu.catalogo:
-        if (_seccionActiva != _AccionMenu.catalogo) {
-          setState(() {
-            _seccionActiva = _AccionMenu.catalogo;
-          });
-        }
+        _cambiarSeccion(_AccionMenu.catalogo);
         return;
       case _AccionMenu.recibos:
-        if (_seccionActiva != _AccionMenu.recibos) {
-          setState(() {
-            _seccionActiva = _AccionMenu.recibos;
-          });
-        }
+        _cambiarSeccion(_AccionMenu.recibos);
         return;
       case _AccionMenu.ventas:
-        if (_seccionActiva != _AccionMenu.ventas) {
-          setState(() {
-            _seccionActiva = _AccionMenu.ventas;
-          });
-        }
+        _cambiarSeccion(_AccionMenu.ventas);
         return;
       case _AccionMenu.clientes:
-        if (_seccionActiva != _AccionMenu.clientes) {
-          setState(() {
-            _seccionActiva = _AccionMenu.clientes;
-          });
-        }
+        _cambiarSeccion(_AccionMenu.clientes);
         return;
       case _AccionMenu.pedidos:
-        if (_seccionActiva != _AccionMenu.pedidos) {
-          setState(() {
-            _seccionActiva = _AccionMenu.pedidos;
-          });
-        }
+        _cambiarSeccion(_AccionMenu.pedidos);
         return;
       case _AccionMenu.cerrarSesion:
         _confirmarCerrarSesion(context);
@@ -238,6 +258,14 @@ class _HomeViewState extends State<HomeView> {
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
+        automaticallyImplyLeading: false,
+        leading: _puedeRegresar
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back_rounded, color: _rojoMarca),
+                tooltip: 'Regresar',
+                onPressed: _regresar,
+              )
+            : null,
         iconTheme: const IconThemeData(color: _rojoMarca),
         shape: const Border(bottom: BorderSide(color: _bordeSuave, width: 1)),
         title: Row(
