@@ -1315,9 +1315,9 @@ void main() {
 
         await abrirReportes(tester, lista);
 
-        expect(find.text('Hoy'), findsOneWidget);
-        expect(find.text('Esta semana'), findsOneWidget);
-        expect(find.text('Este mes'), findsOneWidget);
+        expect(find.text('Hoy'), findsNWidgets(2));
+        expect(find.text('Esta semana'), findsNWidgets(2));
+        expect(find.text('Este mes'), findsNWidgets(2));
         expect(find.text('Total registrado'), findsNWidgets(3));
 
         // Hoy: 1 pedido, L. 150.25
@@ -1400,9 +1400,9 @@ void main() {
           tamano: const Size(390, 720),
         );
 
-        expect(find.text('Hoy'), findsOneWidget);
-        expect(find.text('Esta semana'), findsOneWidget);
-        expect(find.text('Este mes'), findsOneWidget);
+        expect(find.text('Hoy'), findsNWidgets(2));
+        expect(find.text('Esta semana'), findsNWidgets(2));
+        expect(find.text('Este mes'), findsNWidgets(2));
         expect(find.text('1 pedido'), findsNWidgets(3));
         expect(find.text('L. 99.95'), findsNWidgets(3));
 
@@ -1586,6 +1586,204 @@ void main() {
         await tester.pump();
 
         expect(llamadasDescarga, 0);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  });
+
+  group('PedidosView - Interfaz de exportación PDF en Reportes (Etapa 2B Paso 2)', () {
+    final referencia = DateTime.utc(2026, 11, 18, 18);
+
+    final pedidosPrueba = [
+      Pedido(
+        id: 'ui-pdf-1',
+        numeroPedido: 'PED-0001',
+        clienteId: 'cli-1',
+        clienteNombre: 'María José Muñoz',
+        estadoEnvio: EstadoEnvioPedido.pendiente,
+        createdAt: DateTime.utc(2026, 11, 18, 12, 0),
+        items: [
+          PedidoItem(
+            itemId: 'item-1',
+            productoId: 'prod-1',
+            nombre: 'Pulsera',
+            cantidad: 1,
+            precioUnitario: 200.00,
+          ),
+        ],
+      ),
+    ];
+
+    Future<void> abrirReportesConCallbacks(
+      WidgetTester tester, {
+      Size tamano = const Size(1280, 900),
+      Future<Uint8List> Function({
+        required List<Pedido> pedidos,
+        required PeriodoReportePedidos periodo,
+        DateTime? fechaReferencia,
+      })? onGenerar,
+      void Function(Uint8List bytes, String nombreArchivo)? onDescargar,
+    }) async {
+      tester.view.physicalSize = tamano;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: PedidosView(
+                pedidos: pedidosPrueba,
+                fechaReferenciaReportes: referencia,
+                onGenerarReportePdf: onGenerar,
+                onDescargarReportePdf: onDescargar,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final scrollableSubmenu = find
+          .ancestor(
+            of: find.text('Resumen'),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      await tester.scrollUntilVisible(
+        find.text('Reportes'),
+        200,
+        scrollable: scrollableSubmenu,
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Reportes'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'muestra la sección Exportar reporte en PDF con Hoy seleccionado por defecto y permite cambiar período',
+      (tester) async {
+        final periodosGenerados = <PeriodoReportePedidos>[];
+        final archivosDescargados = <String>[];
+
+        await abrirReportesConCallbacks(
+          tester,
+          onGenerar: ({
+            required pedidos,
+            required periodo,
+            fechaReferencia,
+          }) async {
+            periodosGenerados.add(periodo);
+            return Uint8List.fromList('%PDF-1.4'.codeUnits);
+          },
+          onDescargar: (_, nombreArchivo) {
+            archivosDescargados.add(nombreArchivo);
+          },
+        );
+
+        expect(find.text('Exportar reporte en PDF'), findsOneWidget);
+        expect(find.text('Descargar PDF'), findsOneWidget);
+
+        final chipHoy = tester.widget<ChoiceChip>(
+          find.byKey(const ValueKey('chip_periodo_pdf_hoy')),
+        );
+        final chipSemana = tester.widget<ChoiceChip>(
+          find.byKey(const ValueKey('chip_periodo_pdf_semana')),
+        );
+        final chipMes = tester.widget<ChoiceChip>(
+          find.byKey(const ValueKey('chip_periodo_pdf_mes')),
+        );
+        expect(chipHoy.selected, isTrue);
+        expect(chipSemana.selected, isFalse);
+        expect(chipMes.selected, isFalse);
+
+        // Descarga con período inicial (Hoy)
+        await tester.tap(find.byKey(const ValueKey('btn_descargar_reporte_pdf')));
+        await tester.pumpAndSettle();
+
+        // Selecciona Esta semana y descarga
+        await tester.tap(find.byKey(const ValueKey('chip_periodo_pdf_semana')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('btn_descargar_reporte_pdf')));
+        await tester.pumpAndSettle();
+
+        // Selecciona Este mes y descarga
+        await tester.tap(find.byKey(const ValueKey('chip_periodo_pdf_mes')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('btn_descargar_reporte_pdf')));
+        await tester.pumpAndSettle();
+
+        expect(periodosGenerados, [
+          PeriodoReportePedidos.hoy,
+          PeriodoReportePedidos.semana,
+          PeriodoReportePedidos.mes,
+        ]);
+        expect(archivosDescargados, [
+          'reporte_pedidos_hoy_20261118.pdf',
+          'reporte_pedidos_semana_20261118.pdf',
+          'reporte_pedidos_mes_202611.pdf',
+        ]);
+      },
+    );
+
+    testWidgets(
+      'deshabilita el botón y muestra progreso mientras se genera el PDF',
+      (tester) async {
+        final completer = Completer<Uint8List>();
+        var descargas = 0;
+
+        await abrirReportesConCallbacks(
+          tester,
+          onGenerar: ({
+            required pedidos,
+            required periodo,
+            fechaReferencia,
+          }) => completer.future,
+          onDescargar: (_, __) {
+            descargas++;
+          },
+        );
+
+        await tester.tap(find.byKey(const ValueKey('btn_descargar_reporte_pdf')));
+        await tester.pump();
+
+        expect(find.text('Generando PDF...'), findsOneWidget);
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+        final botonCargando = tester.widget<ElevatedButton>(
+          find.byKey(const ValueKey('btn_descargar_reporte_pdf')),
+        );
+        expect(botonCargando.onPressed, isNull);
+
+        completer.complete(Uint8List.fromList([1, 2, 3]));
+        await tester.pumpAndSettle();
+
+        expect(descargas, 1);
+        expect(find.text('Descargar PDF'), findsOneWidget);
+        final botonHabilitado = tester.widget<ElevatedButton>(
+          find.byKey(const ValueKey('btn_descargar_reporte_pdf')),
+        );
+        expect(botonHabilitado.onPressed, isNotNull);
+      },
+    );
+
+    testWidgets(
+      'no presenta desbordamientos en escritorio (1280x900) ni en móvil (390x720)',
+      (tester) async {
+        await abrirReportesConCallbacks(
+          tester,
+          tamano: const Size(1280, 900),
+        );
+        expect(find.text('Exportar reporte en PDF'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+
+        await abrirReportesConCallbacks(
+          tester,
+          tamano: const Size(390, 720),
+        );
+        expect(find.text('Exportar reporte en PDF'), findsOneWidget);
+        expect(find.text('Descargar PDF'), findsOneWidget);
         expect(tester.takeException(), isNull);
       },
     );

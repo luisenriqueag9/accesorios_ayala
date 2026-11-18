@@ -862,6 +862,8 @@ class _PedidosViewState extends State<PedidosView> {
               ),
             ],
           ),
+        const SizedBox(height: 14),
+        _construirTarjetaExportacionPdf(esEscritorio: esEscritorio),
         if (reporte.sinFechaCreacion > 0) ...[
           const SizedBox(height: 12),
           Container(
@@ -1058,6 +1060,148 @@ class _PedidosViewState extends State<PedidosView> {
               color: _negroElegante,
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _construirTarjetaExportacionPdf({required bool esEscritorio}) {
+    final selector = Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: PeriodoReportePedidos.values.map((periodo) {
+        final seleccionado = _periodoReportePdf == periodo;
+        return ChoiceChip(
+          key: ValueKey('chip_periodo_pdf_${periodo.name}'),
+          label: Text(periodo.etiqueta),
+          selected: seleccionado,
+          onSelected: _generandoReportePdf
+              ? null
+              : (activo) {
+                  if (activo && _periodoReportePdf != periodo) {
+                    setState(() {
+                      _periodoReportePdf = periodo;
+                    });
+                  }
+                },
+          selectedColor: _rosaSuave,
+          backgroundColor: Colors.white,
+          side: BorderSide(
+            color: seleccionado ? _rojoMarca : _bordeSuave,
+            width: seleccionado ? 1.3 : 1,
+          ),
+          labelStyle: TextStyle(
+            fontSize: 13,
+            fontWeight: seleccionado ? FontWeight.w700 : FontWeight.w600,
+            color: seleccionado ? _rojoMarca : _negroElegante,
+          ),
+          checkmarkColor: _rojoMarca,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        );
+      }).toList(growable: false),
+    );
+
+    final boton = ElevatedButton.icon(
+      key: const ValueKey('btn_descargar_reporte_pdf'),
+      onPressed: _generandoReportePdf ? null : _descargarReportePdf,
+      icon: _generandoReportePdf
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+          : const Icon(Icons.download_rounded, size: 18),
+      label: Text(_generandoReportePdf ? 'Generando PDF...' : 'Descargar PDF'),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: _rojoMarca,
+        foregroundColor: Colors.white,
+        disabledBackgroundColor: _rojoMarca.withValues(alpha: 0.55),
+        disabledForegroundColor: Colors.white,
+        elevation: 0,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        textStyle: const TextStyle(
+          fontSize: 13.5,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: _decoracionTarjeta(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: _rosaSuave,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _bordeSuave),
+                ),
+                child: const Icon(
+                  Icons.picture_as_pdf_rounded,
+                  color: _rojoMarca,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Exportar reporte en PDF',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: _negroElegante,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Selecciona el período y descarga el reporte con detalle de pedidos.',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w500,
+                        color: _grisTexto,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (esEscritorio)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(child: selector),
+                const SizedBox(width: 16),
+                boton,
+              ],
+            )
+          else
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                selector,
+                const SizedBox(height: 12),
+                SizedBox(width: double.infinity, child: boton),
+              ],
+            ),
         ],
       ),
     );
