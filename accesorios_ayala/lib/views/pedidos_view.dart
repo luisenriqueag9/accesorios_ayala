@@ -74,6 +74,13 @@ class PedidosView extends StatefulWidget {
   final void Function(Uint8List bytes, String nombreArchivo)?
       onDescargarReportePdf;
 
+  /// Callback opcional para inyectar el marcado de envío en pruebas de widget.
+  @visibleForTesting
+  final Future<Pedido> Function({
+    required String pedidoId,
+    required DateTime? updatedAtEsperado,
+  })? onMarcarPedidoComoEnviado;
+
   const PedidosView({
     super.key,
     this.pedidos,
@@ -84,6 +91,7 @@ class PedidosView extends StatefulWidget {
     this.fechaReferenciaReportes,
     this.onGenerarReportePdf,
     this.onDescargarReportePdf,
+    this.onMarcarPedidoComoEnviado,
   });
 
   @visibleForTesting
@@ -2850,6 +2858,8 @@ class _PedidosViewState extends State<PedidosView> {
     var eliminandoPedido = false;
     var confirmandoFacturacion = false;
     var facturandoPedido = false;
+    var confirmandoEnvio = false;
+    var marcandoEnviado = false;
     var requiereRecarga = false;
     String? mensajeExito;
     String? mensajeError;
@@ -2886,6 +2896,8 @@ class _PedidosViewState extends State<PedidosView> {
                 eliminandoPedido = false;
                 confirmandoFacturacion = false;
                 facturandoPedido = false;
+                confirmandoEnvio = false;
+                marcandoEnviado = false;
                 requiereRecarga = necesitaRecarga;
                 mensajeExito = null;
                 mensajeError = mensajeMostrado;
@@ -3357,7 +3369,9 @@ class _PedidosViewState extends State<PedidosView> {
                 recargando ||
                 eliminandoPedido ||
                 confirmandoFacturacion ||
-                facturandoPedido;
+                facturandoPedido ||
+                confirmandoEnvio ||
+                marcandoEnviado;
 
             Future<void> facturarPedidoActual() async {
               if (confirmandoFacturacion ||
@@ -3508,6 +3522,159 @@ class _PedidosViewState extends State<PedidosView> {
                 manejarExcepcionActualizacion(e);
               }
             }
+
+            bool puedeMarcarComoEnviado(Pedido p) {
+              return p.estadoEnvio == EstadoEnvioPedido.pendiente &&
+                  p.items.isNotEmpty &&
+                  p.todosAccesoriosTerminados &&
+                  p.updatedAt != null &&
+                  !hayCambiosProvisionales &&
+                  !bloqueadoPorOperacion &&
+                  !requiereRecarga;
+            }
+
+            Future<void> marcarEnviadoActual() async {
+              if (confirmandoEnvio ||
+                  marcandoEnviado ||
+                  !puedeMarcarComoEnviado(pedidoActual)) {
+                return;
+              }
+
+              setDialogState(() {
+                confirmandoEnvio = true;
+              });
+
+              bool? confirmado;
+              try {
+                final numeroPedido = _numeroVisible(pedidoActual);
+                confirmado = await showDialog<bool>(
+                  context: dialogContext,
+                  builder: (confirmContext) {
+                    return AlertDialog(
+                      title: const Text('Confirmar envío del pedido'),
+                      content: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            numeroPedido,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 6),
+                          Text('Cliente: ${pedidoActual.clienteNombre}'),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'Transición: Pendiente → Enviado',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 10),
+                          const Text(
+                            'El servidor validará que toda la producción esté terminada y registrará la fecha de envío.',
+                            style: TextStyle(fontSize: 13, color: _grisTexto),
+                          ),
+                        ],
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () =>
+                              Navigator.of(confirmContext).pop(false),
+                          child: const Text('Cancelar'),
+                        ),
+                        ElevatedButton(
+                          onPressed: () =>
+                              Navigator.of(confirmContext).pop(true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _rojoMarca,
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text('Confirmar envío'),
+                        ),
+                      ],
+                    );
+                  },
+                );
+              } catch (_) {
+                confirmandoEnvio = false;
+                if (dialogContext.mounted) {
+                  aplicarErrorDeActualizacion(
+                    mensajeMostrado:
+                        'No se pudo abrir la confirmación de envío. Inténtalo nuevamente.',
+                    necesitaRecarga: false,
+                  );
+                }
+                return;
+              }
+
+              if (confirmado != true || !dialogContext.mounted) {
+                confirmandoEnvio = false;
+                if (dialogContext.mounted) {
+                  setDialogState(() {
+                    confirmandoEnvio = false;
+                  });
+                }
+                return;
+              }
+
+              final operacionExternaEnCurso =
+                  guardando ||
+                  recargando ||
+                  eliminandoPedido ||
+                  confirmandoFacturacion ||
+                  facturandoPedido ||
+                  marcandoEnviado;
+              final sigueElegibleTrasConfirmar =
+                  pedidoActual.estadoEnvio == EstadoEnvioPedido.pendiente &&
+                  pedidoActual.items.isNotEmpty &&
+                  pedidoActual.todosAccesoriosTerminados &&
+                  pedidoActual.updatedAt != null &&
+                  !hayCambiosProvisionales &&
+                  !operacionExternaEnCurso &&
+                  !requiereRecarga;
+
+              if (!sigueElegibleTrasConfirmar) {
+                setDialogState(() {
+                  confirmandoEnvio = false;
+                });
+                return;
+              }
+
+              setDialogState(() {
+                confirmandoEnvio = false;
+                marcandoEnviado = true;
+                mensajeExito = null;
+                mensajeError = null;
+                permitirRecargar = false;
+              });
+
+              try {
+                final marcar =
+                    widget.onMarcarPedidoComoEnviado ??
+                    PedidoController.marcarPedidoComoEnviado;
+                final pedidoConfirmado = await marcar(
+                  pedidoId: pedidoActual.id,
+                  updatedAtEsperado: pedidoActual.updatedAt,
+                );
+
+                _actualizarPedidoEnLista(pedidoConfirmado);
+                if (!dialogContext.mounted) return;
+
+                setDialogState(() {
+                  pedidoActual = pedidoConfirmado;
+                  marcandoEnviado = false;
+                  requiereRecarga = false;
+                  mensajeExito = 'Pedido marcado como enviado correctamente.';
+                  mensajeError = null;
+                  permitirRecargar = false;
+                });
+              } catch (e) {
+                if (!dialogContext.mounted) {
+                  marcandoEnviado = false;
+                  return;
+                }
+                manejarExcepcionActualizacion(e);
+              }
+            }
+
             final puedeMostrarEliminarPedido =
                 !pedidoActual.facturado &&
                 pedidoActual.ventaId == null &&
@@ -3725,6 +3892,22 @@ class _PedidosViewState extends State<PedidosView> {
                                         ? facturarPedidoActual
                                         : null,
                                   );
+                              final puedeEnviar =
+                                  puedeMarcarComoEnviado(pedidoActual);
+                              final seccionEnvio =
+                                  _construirSeccionEnvioDetalle(
+                                    pedidoActual,
+                                    puedeEnviar: puedeEnviar,
+                                    marcandoEnviado: marcandoEnviado,
+                                    hayCambiosProvisionales:
+                                        hayCambiosProvisionales,
+                                    bloqueadoPorOperacion:
+                                        bloqueadoPorOperacion,
+                                    requiereRecarga: requiereRecarga,
+                                    onEnviarTap: puedeEnviar
+                                        ? marcarEnviadoActual
+                                        : null,
+                                  );
 
                               return SingleChildScrollView(
                                 padding: EdgeInsets.all(
@@ -3814,6 +3997,8 @@ class _PedidosViewState extends State<PedidosView> {
                                                 seccionResumen,
                                                 const SizedBox(height: 12),
                                                 seccionFacturacion,
+                                                const SizedBox(height: 12),
+                                                seccionEnvio,
                                               ],
                                             ),
                                           ),
@@ -3825,6 +4010,8 @@ class _PedidosViewState extends State<PedidosView> {
                                       seccionResumen,
                                       const SizedBox(height: 12),
                                       seccionFacturacion,
+                                      const SizedBox(height: 12),
+                                      seccionEnvio,
                                     ],
                                   ],
                                 ),
@@ -4206,6 +4393,132 @@ class _PedidosViewState extends State<PedidosView> {
               ),
             ),
           ),
+          const SizedBox(height: 8),
+          Text(
+            descripcionEstado,
+            style: const TextStyle(
+              fontSize: 12,
+              color: _grisTexto,
+              height: 1.35,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _construirSeccionEnvioDetalle(
+    Pedido pedido, {
+    required bool puedeEnviar,
+    required bool marcandoEnviado,
+    required bool hayCambiosProvisionales,
+    required bool bloqueadoPorOperacion,
+    required bool requiereRecarga,
+    required VoidCallback? onEnviarTap,
+  }) {
+    final yaEnviado = pedido.estadoEnvio == EstadoEnvioPedido.enviado;
+    final yaEntregado = pedido.estadoEnvio == EstadoEnvioPedido.entregado;
+
+    String descripcionEstado;
+    if (yaEnviado) {
+      descripcionEstado = pedido.fechaEnvio != null
+          ? 'Envío registrado el ${_formatearFecha(pedido.fechaEnvio)}.'
+          : 'Este pedido ya fue marcado como enviado.';
+    } else if (yaEntregado) {
+      descripcionEstado =
+          'Este pedido cuenta con estado histórico Entregado y no permite cambios de envío.';
+    } else if (marcandoEnviado) {
+      descripcionEstado = 'Registrando envío en el servidor...';
+    } else if (bloqueadoPorOperacion) {
+      descripcionEstado =
+          'Espera a que termine la operación actual antes de marcar el envío.';
+    } else if (requiereRecarga) {
+      descripcionEstado =
+          'Recarga el pedido para verificar su estado en Firestore antes de enviarlo.';
+    } else if (hayCambiosProvisionales) {
+      descripcionEstado =
+          'Guarda los cambios de producción pendientes antes de marcar como enviado.';
+    } else if (pedido.items.isEmpty) {
+      descripcionEstado =
+          'El pedido debe tener al menos un artículo para poder enviarse.';
+    } else if (!pedido.todosAccesoriosTerminados) {
+      descripcionEstado =
+          'Disponible únicamente cuando todos los artículos estén terminados.';
+    } else if (pedido.updatedAt == null) {
+      descripcionEstado =
+          'Este pedido no tiene marca temporal de versión (updatedAt). Recárgalo antes de marcarlo como enviado.';
+    } else {
+      descripcionEstado =
+          'Todos los artículos están terminados. Pedido listo para marcar como enviado.';
+    }
+
+    return _construirSeccionDetalle(
+      titulo: 'Envío del pedido',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (yaEnviado || yaEntregado) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFECFDF5),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFA7F3D0)),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    yaEntregado
+                        ? Icons.inventory_2_rounded
+                        : Icons.local_shipping_rounded,
+                    size: 16,
+                    color: const Color(0xFF065F46),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Envío: ${pedido.estadoEnvio.etiqueta}',
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF065F46),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else
+            OutlinedButton.icon(
+              key: const ValueKey('btn_marcar_pedido_enviado'),
+              onPressed: puedeEnviar ? onEnviarTap : null,
+              icon: marcandoEnviado
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.local_shipping_outlined, size: 18),
+              label: Text(
+                marcandoEnviado
+                    ? 'Marcando como enviado...'
+                    : 'Marcar como enviado',
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _rojoMarca,
+                disabledForegroundColor: _grisTexto.withValues(alpha: 0.65),
+                side: BorderSide(
+                  color: puedeEnviar ? _rojoMarca : _bordeSuave,
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
           const SizedBox(height: 8),
           Text(
             descripcionEstado,

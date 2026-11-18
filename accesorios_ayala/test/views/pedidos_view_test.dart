@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:accesorios_ayala/controllers/pedido_controller.dart';
 import 'package:accesorios_ayala/models/pedido.dart';
 import 'package:accesorios_ayala/models/venta.dart';
 import 'package:accesorios_ayala/services/reporte_pedidos_pdf_service.dart';
@@ -1785,6 +1786,352 @@ void main() {
         expect(find.text('Exportar reporte en PDF'), findsOneWidget);
         expect(find.text('Descargar PDF'), findsOneWidget);
         expect(tester.takeException(), isNull);
+      },
+    );
+  });
+
+  group('PedidosView - Marcar como enviado (Etapa 3 Paso 3E-C)', () {
+    final updatedAtBase = DateTime.utc(2026, 11, 18, 12, 0);
+
+    List<PedidoItem> crearItemsEnvio(
+      int cantidad, {
+      EstadoElaboracionPedido estado = EstadoElaboracionPedido.terminado,
+    }) {
+      return List<PedidoItem>.generate(
+        cantidad,
+        (i) => PedidoItem(
+          itemId: 'item-env-${i + 1}',
+          productoId: 'prod-${i + 1}',
+          nombre: 'Pulsera ${i + 1}',
+          cantidad: 1,
+          precioUnitario: 100.0,
+          estadoElaboracion: estado,
+        ),
+      );
+    }
+
+    Pedido crearPedidoEnvio({
+      String id = 'ped-env-1',
+      String numeroPedido = 'PED-0050',
+      EstadoEnvioPedido estadoEnvio = EstadoEnvioPedido.pendiente,
+      List<PedidoItem>? items,
+      bool facturado = false,
+      String? ventaId,
+      String? facturaNumero,
+      DateTime? updatedAt,
+      bool sinUpdatedAt = false,
+      DateTime? fechaEnvio,
+    }) {
+      return Pedido(
+        id: id,
+        numeroPedido: numeroPedido,
+        clienteId: 'cli-env-1',
+        clienteNombre: 'María José Muñoz',
+        estadoEnvio: estadoEnvio,
+        items: items ?? crearItemsEnvio(2),
+        facturado: facturado,
+        ventaId: ventaId,
+        facturaNumero: facturaNumero,
+        fechaEnvio: fechaEnvio,
+        createdAt: DateTime.utc(2026, 11, 18, 10, 0),
+        updatedAt: sinUpdatedAt ? null : (updatedAt ?? updatedAtBase),
+      );
+    }
+
+    Future<void> abrirDetalleEnvio(
+      WidgetTester tester,
+      Pedido pedido, {
+      Future<Pedido> Function({
+        required String pedidoId,
+        required DateTime? updatedAtEsperado,
+      })? onMarcar,
+    }) async {
+      tester.view.physicalSize = const Size(1280, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: PedidosView(
+                pedidos: [pedido],
+                onMarcarPedidoComoEnviado: onMarcar,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final submenuScrollable = find
+          .ancestor(
+            of: find.text('Resumen'),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      final pestanaPedidos = find.descendant(
+        of: submenuScrollable,
+        matching: find.text('Pedidos'),
+      );
+      await tester.tap(pestanaPedidos);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text(pedido.numeroPedido));
+      await tester.pumpAndSettle();
+    }
+
+    OutlinedButton? obtenerBotonEnvio(WidgetTester tester) {
+      final finder = find.byKey(const ValueKey('btn_marcar_pedido_enviado'));
+      if (finder.evaluate().isEmpty) return null;
+      return tester.widget<OutlinedButton>(finder);
+    }
+
+    testWidgets(
+      'habilita el botón en pedido pendiente y facturado con producción terminada',
+      (tester) async {
+        await abrirDetalleEnvio(tester, crearPedidoEnvio());
+        final btnPendiente = obtenerBotonEnvio(tester);
+        expect(btnPendiente, isNotNull);
+        expect(btnPendiente!.onPressed, isNotNull);
+
+        await tester.tap(find.byIcon(Icons.close_rounded));
+        await tester.pumpAndSettle();
+
+        await abrirDetalleEnvio(
+          tester,
+          crearPedidoEnvio(
+            id: 'ped-env-fac',
+            numeroPedido: 'PED-0051',
+            facturado: true,
+            ventaId: 'FAC-0010',
+            facturaNumero: 'FAC-0010',
+          ),
+        );
+        final btnFacturado = obtenerBotonEnvio(tester);
+        expect(btnFacturado, isNotNull);
+        expect(btnFacturado!.onPressed, isNotNull);
+      },
+    );
+
+    testWidgets(
+      'deshabilita el botón cuando producción está incompleta, sin artículos o sin updatedAt',
+      (tester) async {
+        await abrirDetalleEnvio(
+          tester,
+          crearPedidoEnvio(
+            items: [
+              PedidoItem(
+                itemId: 'i1',
+                productoId: 'p1',
+                nombre: 'Pulsera',
+                cantidad: 1,
+                precioUnitario: 100,
+                estadoElaboracion: EstadoElaboracionPedido.terminado,
+              ),
+              PedidoItem(
+                itemId: 'i2',
+                productoId: 'p2',
+                nombre: 'Collar',
+                cantidad: 1,
+                precioUnitario: 100,
+                estadoElaboracion: EstadoElaboracionPedido.enProceso,
+              ),
+            ],
+          ),
+        );
+        expect(obtenerBotonEnvio(tester)?.onPressed, isNull);
+
+        await tester.tap(find.byIcon(Icons.close_rounded));
+        await tester.pumpAndSettle();
+
+        await abrirDetalleEnvio(
+          tester,
+          crearPedidoEnvio(items: const []),
+        );
+        expect(obtenerBotonEnvio(tester)?.onPressed, isNull);
+
+        await tester.tap(find.byIcon(Icons.close_rounded));
+        await tester.pumpAndSettle();
+
+        await abrirDetalleEnvio(
+          tester,
+          crearPedidoEnvio(sinUpdatedAt: true),
+        );
+        expect(obtenerBotonEnvio(tester)?.onPressed, isNull);
+      },
+    );
+
+    testWidgets(
+      'no permite repetir el envío en pedidos ya enviados ni en históricos entregados',
+      (tester) async {
+        await abrirDetalleEnvio(
+          tester,
+          crearPedidoEnvio(
+            estadoEnvio: EstadoEnvioPedido.enviado,
+            fechaEnvio: DateTime.utc(2026, 11, 18, 15, 0),
+          ),
+        );
+        expect(obtenerBotonEnvio(tester), isNull);
+        expect(find.text('Envío: Enviado'), findsAtLeastNWidgets(2));
+
+        await tester.tap(find.byIcon(Icons.close_rounded));
+        await tester.pumpAndSettle();
+
+        await abrirDetalleEnvio(
+          tester,
+          crearPedidoEnvio(estadoEnvio: EstadoEnvioPedido.entregado),
+        );
+        expect(obtenerBotonEnvio(tester), isNull);
+        expect(find.text('Envío: Entregado'), findsAtLeastNWidgets(2));
+      },
+    );
+
+    testWidgets(
+      'cancelar la confirmación no ejecuta el callback y confirmar envía pedidoId y updatedAt exactos',
+      (tester) async {
+        final llamadas = <({String pedidoId, DateTime? updatedAt})>[];
+        final pedido = crearPedidoEnvio();
+
+        await abrirDetalleEnvio(
+          tester,
+          pedido,
+          onMarcar: ({
+            required pedidoId,
+            required updatedAtEsperado,
+          }) async {
+            llamadas.add((
+              pedidoId: pedidoId,
+              updatedAt: updatedAtEsperado,
+            ));
+            return pedido.copyWith(
+              estadoEnvio: EstadoEnvioPedido.enviado,
+              fechaEnvio: DateTime.utc(2026, 11, 18, 18, 30),
+              updatedAt: DateTime.utc(2026, 11, 18, 18, 30),
+            );
+          },
+        );
+
+        final btnFinder = find.byKey(const ValueKey('btn_marcar_pedido_enviado'));
+        await tester.ensureVisible(btnFinder);
+        await tester.tap(btnFinder);
+        await tester.pumpAndSettle();
+
+        expect(find.text('Confirmar envío del pedido'), findsOneWidget);
+        expect(find.text('Transición: Pendiente → Enviado'), findsOneWidget);
+
+        await tester.tap(find.text('Cancelar'));
+        await tester.pumpAndSettle();
+        expect(llamadas, isEmpty);
+
+        await tester.ensureVisible(btnFinder);
+        await tester.tap(btnFinder);
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Confirmar envío'));
+        await tester.pumpAndSettle();
+
+        expect(llamadas, hasLength(1));
+        expect(llamadas.single.pedidoId, pedido.id);
+        expect(llamadas.single.updatedAt, updatedAtBase);
+        expect(
+          find.text('Pedido marcado como enviado correctamente.'),
+          findsOneWidget,
+        );
+        expect(find.text('Envío: Enviado'), findsAtLeastNWidgets(1));
+        expect(find.text('Producción: Terminado'), findsAtLeastNWidgets(1));
+        expect(obtenerBotonEnvio(tester), isNull);
+      },
+    );
+
+    testWidgets(
+      'bloquea nuevas operaciones mientras el envío está pendiente y permite 25 artículos terminados',
+      (tester) async {
+        final completer = Completer<Pedido>();
+        final pedido25 = crearPedidoEnvio(
+          id: 'ped-25',
+          numeroPedido: 'PED-0075',
+          items: crearItemsEnvio(25, estado: EstadoElaboracionPedido.terminado),
+        );
+
+        await abrirDetalleEnvio(
+          tester,
+          pedido25,
+          onMarcar: ({required pedidoId, required updatedAtEsperado}) =>
+              completer.future,
+        );
+
+        final btnFinder = find.byKey(const ValueKey('btn_marcar_pedido_enviado'));
+        await tester.ensureVisible(btnFinder);
+        await tester.tap(btnFinder);
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Confirmar envío'));
+        await tester.pump();
+
+        expect(find.text('Marcando como enviado...'), findsOneWidget);
+        expect(obtenerBotonEnvio(tester)?.onPressed, isNull);
+
+        completer.complete(
+          pedido25.copyWith(
+            estadoEnvio: EstadoEnvioPedido.enviado,
+            fechaEnvio: DateTime.utc(2026, 11, 18, 19, 0),
+            updatedAt: DateTime.utc(2026, 11, 18, 19, 0),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(obtenerBotonEnvio(tester), isNull);
+        expect(find.text('Envío: Enviado'), findsAtLeastNWidgets(1));
+        expect(find.text('Producción: Terminado'), findsAtLeastNWidgets(1));
+      },
+    );
+
+    testWidgets(
+      'muestra error del servidor y libera el bloqueo, y muestra aviso ante conflicto de concurrencia',
+      (tester) async {
+        final pedido = crearPedidoEnvio();
+        var modo = 'error';
+
+        await abrirDetalleEnvio(
+          tester,
+          pedido,
+          onMarcar: ({required pedidoId, required updatedAtEsperado}) async {
+            if (modo == 'error') {
+              throw const PedidoControllerException(
+                tipo: TipoErrorPedido.permisosInsuficientes,
+                mensaje: 'No tienes permisos administrativos.',
+              );
+            }
+            throw const PedidoControllerException(
+              tipo: TipoErrorPedido.conflictoConcurrencia,
+              mensaje: 'Conflicto de concurrencia.',
+            );
+          },
+        );
+
+        final btnFinder = find.byKey(const ValueKey('btn_marcar_pedido_enviado'));
+        await tester.ensureVisible(btnFinder);
+        await tester.tap(btnFinder);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Confirmar envío'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('No tienes permisos administrativos.'), findsOneWidget);
+        expect(obtenerBotonEnvio(tester)?.onPressed, isNotNull);
+
+        modo = 'conflicto';
+        await tester.ensureVisible(btnFinder);
+        await tester.tap(btnFinder);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Confirmar envío'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.textContaining('Otro administrador modificó este pedido'),
+          findsOneWidget,
+        );
+        expect(obtenerBotonEnvio(tester)?.onPressed, isNull);
       },
     );
   });
