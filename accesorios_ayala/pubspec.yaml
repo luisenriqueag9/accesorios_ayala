@@ -62,6 +62,15 @@ flutter:
     - assets/icons/instagram.png
     - assets/icons/whatsapp_qr.png
 
+  fonts:
+    - family: NotoSans
+      fonts:
+        - asset: assets/fonts/NotoSans-Regular.ttf
+        - asset: assets/fonts/NotoSans-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/NotoSans-Italic.ttf
+          style: italic
+
 flutter_icons:
   android: true
   ios: true
