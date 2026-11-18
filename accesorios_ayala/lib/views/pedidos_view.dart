@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../controllers/pedido_controller.dart';
@@ -7,6 +8,9 @@ import '../models/cliente.dart';
 import '../models/pedido.dart';
 import '../models/producto.dart';
 import '../models/venta.dart';
+import '../services/reporte_pedidos_pdf_service.dart';
+import '../utils/descargar_pdf_stub.dart'
+    if (dart.library.html) '../utils/descargar_pdf_web.dart';
 import 'nuevo_pedido_view.dart';
 import 'vista_previa_recibo_view.dart';
 
@@ -59,6 +63,17 @@ class PedidosView extends StatefulWidget {
   /// Si es `null` se utiliza [DateTime.now].
   final DateTime? fechaReferenciaReportes;
 
+  /// Callback opcional para inyectar la generación del reporte PDF en pruebas.
+  final Future<Uint8List> Function({
+    required List<Pedido> pedidos,
+    required PeriodoReportePedidos periodo,
+    DateTime? fechaReferencia,
+  })? onGenerarReportePdf;
+
+  /// Callback opcional para interceptar la descarga del reporte PDF en pruebas.
+  final void Function(Uint8List bytes, String nombreArchivo)?
+      onDescargarReportePdf;
+
   const PedidosView({
     super.key,
     this.pedidos,
@@ -67,7 +82,26 @@ class PedidosView extends StatefulWidget {
     this.onBuscarPedidoPorFactura,
     this.fechaReferenciaAlertas,
     this.fechaReferenciaReportes,
+    this.onGenerarReportePdf,
+    this.onDescargarReportePdf,
   });
+
+  @visibleForTesting
+  static Future<void> ejecutarDescargaReportePdfParaPruebas(
+    State<PedidosView> state, {
+    PeriodoReportePedidos? periodo,
+  }) async {
+    final viewState = state as _PedidosViewState;
+    if (periodo != null) {
+      viewState._periodoReportePdf = periodo;
+    }
+    await viewState._descargarReportePdf();
+  }
+
+  @visibleForTesting
+  static bool generandoReportePdfParaPruebas(State<PedidosView> state) {
+    return (state as _PedidosViewState)._generandoReportePdf;
+  }
 
   @override
   State<PedidosView> createState() => _PedidosViewState();
@@ -125,6 +159,9 @@ class _PedidosViewState extends State<PedidosView> {
   bool _facturasInicializadas = false;
   String? _errorCargaFacturas;
   String? _facturaAbriendoId;
+
+  bool _generandoReportePdf = false;
+  PeriodoReportePedidos _periodoReportePdf = PeriodoReportePedidos.hoy;
 
   bool get _usaListaExterna => widget.pedidos != null;
   bool get _usaFacturasExternas => widget.facturas != null;
@@ -686,6 +723,73 @@ class _PedidosViewState extends State<PedidosView> {
       totalMes: centavosMes / 100.0,
       sinFechaCreacion: sinFechaCreacion,
     );
+  }
+
+  String _nombreArchivoReportePdf(
+    PeriodoReportePedidos periodo,
+    DateTime referencia,
+  ) {
+    final fechaHn = referencia.toUtc().subtract(const Duration(hours: 6));
+    final anio = fechaHn.year.toString().padLeft(4, '0');
+    final mes = fechaHn.month.toString().padLeft(2, '0');
+    final dia = fechaHn.day.toString().padLeft(2, '0');
+
+    switch (periodo) {
+      case PeriodoReportePedidos.hoy:
+        return 'reporte_pedidos_hoy_$anio$mes$dia.pdf';
+      case PeriodoReportePedidos.semana:
+        return 'reporte_pedidos_semana_$anio$mes$dia.pdf';
+      case PeriodoReportePedidos.mes:
+        return 'reporte_pedidos_mes_$anio$mes.pdf';
+    }
+  }
+
+  Future<void> _descargarReportePdf() async {
+    if (_generandoReportePdf) return;
+
+    final periodo = _periodoReportePdf;
+    final referencia = widget.fechaReferenciaReportes ?? DateTime.now();
+
+    setState(() {
+      _generandoReportePdf = true;
+    });
+
+    try {
+      final generar =
+          widget.onGenerarReportePdf ?? ReportePedidosPdfService.generarReporte;
+      final bytes = await generar(
+        pedidos: pedidos,
+        periodo: periodo,
+        fechaReferencia: referencia,
+      );
+      if (!mounted) return;
+
+      final nombreArchivo = _nombreArchivoReportePdf(periodo, referencia);
+      final descargar = widget.onDescargarReportePdf ?? descargarPdfWeb;
+      descargar(bytes, nombreArchivo);
+
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text('Reporte PDF descargado: $nombreArchivo'),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No se pudo generar el reporte PDF. Intenta nuevamente.',
+          ),
+          backgroundColor: _rojoMarca,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _generandoReportePdf = false;
+        });
+      }
+    }
   }
 
   Widget _construirSeccionReportes({required bool esEscritorio}) {

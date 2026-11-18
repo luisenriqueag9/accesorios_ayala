@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -6,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:accesorios_ayala/models/pedido.dart';
 import 'package:accesorios_ayala/models/venta.dart';
+import 'package:accesorios_ayala/services/reporte_pedidos_pdf_service.dart';
 import 'package:accesorios_ayala/views/pedidos_view.dart';
 import 'package:accesorios_ayala/views/vista_previa_recibo_view.dart';
 
@@ -1412,6 +1415,178 @@ void main() {
         expect(find.text('0 pedidos'), findsNWidgets(3));
         expect(find.text('L. 0.00'), findsNWidgets(3));
         expect(find.text('Sin pedidos registrados'), findsOneWidget);
+      },
+    );
+  });
+
+  group('PedidosView - Acción de descarga PDF (Etapa 2B Paso 1)', () {
+    // 18 de noviembre de 2026 00:30 Honduras (18/11 06:30 UTC).
+    final referencia = DateTime.utc(2026, 11, 18, 6, 30);
+
+    final pedidosPrueba = [
+      Pedido(
+        id: 'pdf-1',
+        numeroPedido: 'PED-0001',
+        clienteId: 'cli-1',
+        clienteNombre: 'María José Muñoz',
+        estadoEnvio: EstadoEnvioPedido.pendiente,
+        createdAt: DateTime.utc(2026, 11, 18, 6, 10),
+        items: [
+          PedidoItem(
+            itemId: 'item-1',
+            productoId: 'prod-1',
+            nombre: 'Pulsera',
+            cantidad: 1,
+            precioUnitario: 150.00,
+          ),
+        ],
+      ),
+    ];
+
+    Future<State<PedidosView>> montarPedidosView(
+      WidgetTester tester, {
+      DateTime? fechaRef,
+      Future<Uint8List> Function({
+        required List<Pedido> pedidos,
+        required PeriodoReportePedidos periodo,
+        DateTime? fechaReferencia,
+      })? onGenerar,
+      void Function(Uint8List bytes, String nombreArchivo)? onDescargar,
+    }) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: PedidosView(
+                pedidos: pedidosPrueba,
+                fechaReferenciaReportes: fechaRef ?? referencia,
+                onGenerarReportePdf: onGenerar,
+                onDescargarReportePdf: onDescargar,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return tester.state<State<PedidosView>>(find.byType(PedidosView));
+    }
+
+    testWidgets(
+      'genera PDF válido con nombre según período y fecha Honduras e invoca callback',
+      (tester) async {
+        final descargas = <({Uint8List bytes, String nombre})>[];
+        final state = await montarPedidosView(
+          tester,
+          onDescargar: (bytes, nombre) {
+            descargas.add((bytes: bytes, nombre: nombre));
+          },
+        );
+
+        await PedidosView.ejecutarDescargaReportePdfParaPruebas(state);
+        await tester.pump();
+
+        expect(descargas, hasLength(1));
+        expect(descargas.first.nombre, 'reporte_pedidos_hoy_20261118.pdf');
+        expect(ascii.decode(descargas.first.bytes.take(5).toList()), '%PDF-');
+        expect(PedidosView.generandoReportePdfParaPruebas(state), isFalse);
+        expect(
+          find.text('Reporte PDF descargado: reporte_pedidos_hoy_20261118.pdf'),
+          findsOneWidget,
+        );
+
+        await PedidosView.ejecutarDescargaReportePdfParaPruebas(
+          state,
+          periodo: PeriodoReportePedidos.semana,
+        );
+        await tester.pump();
+        expect(descargas, hasLength(2));
+        expect(descargas[1].nombre, 'reporte_pedidos_semana_20261118.pdf');
+
+        await PedidosView.ejecutarDescargaReportePdfParaPruebas(
+          state,
+          periodo: PeriodoReportePedidos.mes,
+        );
+        await tester.pump();
+        expect(descargas, hasLength(3));
+        expect(descargas[2].nombre, 'reporte_pedidos_mes_202611.pdf');
+      },
+    );
+
+    testWidgets(
+      'impide ejecuciones simultáneas mientras _generandoReportePdf está activo',
+      (tester) async {
+        var llamadasDescarga = 0;
+        final state = await montarPedidosView(
+          tester,
+          onDescargar: (_, __) {
+            llamadasDescarga++;
+          },
+        );
+
+        final primera = PedidosView.ejecutarDescargaReportePdfParaPruebas(state);
+        expect(PedidosView.generandoReportePdfParaPruebas(state), isTrue);
+
+        final segunda = PedidosView.ejecutarDescargaReportePdfParaPruebas(state);
+        await Future.wait([primera, segunda]);
+        await tester.pump();
+
+        expect(llamadasDescarga, 1);
+        expect(PedidosView.generandoReportePdfParaPruebas(state), isFalse);
+      },
+    );
+
+    testWidgets(
+      'restablece _generandoReportePdf y muestra mensaje claro si falla la descarga',
+      (tester) async {
+        final state = await montarPedidosView(
+          tester,
+          onDescargar: (_, __) {
+            throw StateError('Fallo simulado de descarga');
+          },
+        );
+
+        await PedidosView.ejecutarDescargaReportePdfParaPruebas(state);
+        await tester.pump();
+
+        expect(PedidosView.generandoReportePdfParaPruebas(state), isFalse);
+        expect(
+          find.text('No se pudo generar el reporte PDF. Intenta nuevamente.'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'no ejecuta la descarga si la vista se desmonta mientras se genera el PDF',
+      (tester) async {
+        final completer = Completer<Uint8List>();
+        var llamadasDescarga = 0;
+        final state = await montarPedidosView(
+          tester,
+          onGenerar: ({
+            required pedidos,
+            required periodo,
+            fechaReferencia,
+          }) => completer.future,
+          onDescargar: (_, __) {
+            llamadasDescarga++;
+          },
+        );
+
+        final futuroDescarga =
+            PedidosView.ejecutarDescargaReportePdfParaPruebas(state);
+
+        await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
+        );
+        expect(state.mounted, isFalse);
+
+        completer.complete(Uint8List.fromList([1, 2, 3]));
+        await futuroDescarga;
+        await tester.pump();
+
+        expect(llamadasDescarga, 0);
+        expect(tester.takeException(), isNull);
       },
     );
   });
