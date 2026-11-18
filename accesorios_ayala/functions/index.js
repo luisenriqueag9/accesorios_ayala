@@ -2,6 +2,9 @@ const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { initializeApp, getApps } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { ejecutarFacturarPedido } = require('./facturar_pedido_core');
+const {
+  ejecutarMarcarPedidoEnviado,
+} = require('./marcar_pedido_enviado_core');
 
 function obtenerDb() {
   const defaultApp =
@@ -43,6 +46,24 @@ exports.facturarPedido = onCall(
   async (request) => {
     const db = obtenerDb();
     return ejecutarFacturarPedido({
+      auth: request.auth,
+      data: request.data,
+      db,
+      serverTimestamp: () => FieldValue.serverTimestamp(),
+    });
+  },
+);
+
+/**
+ * Marca un pedido con producción terminada como enviado en una transacción atómica en servidor.
+ */
+exports.marcarPedidoComoEnviado = onCall(
+  {
+    region: 'us-central1',
+  },
+  async (request) => {
+    const db = obtenerDb();
+    return ejecutarMarcarPedidoEnviado({
       auth: request.auth,
       data: request.data,
       db,
