@@ -306,6 +306,200 @@ void main() {
       );
     });
   });
+
+  group('ReportePedidosPdfService - columnas Producción y Envío', () {
+    test(
+      'genera PDF con combinaciones independientes de Producción y Envío y conserva totales',
+      () async {
+        final pedidosCombinados = <Pedido>[
+          // 1. Producción Terminado + Envío Pendiente
+          Pedido(
+            id: 'c1',
+            numeroPedido: 'PED-0001',
+            clienteId: 'cli-1',
+            clienteNombre: 'María José Muñoz',
+            estadoEnvio: EstadoEnvioPedido.pendiente,
+            createdAt: DateTime.utc(2026, 11, 18, 12, 0),
+            items: [
+              PedidoItem(
+                itemId: 'i1',
+                productoId: 'prod-1',
+                nombre: 'Pulsera',
+                cantidad: 1,
+                precioUnitario: 120.50,
+                estadoElaboracion: EstadoElaboracionPedido.terminado,
+              ),
+            ],
+          ),
+          // 2. Producción Terminado + Envío Enviado
+          Pedido(
+            id: 'c2',
+            numeroPedido: 'PED-0002',
+            clienteId: 'cli-2',
+            clienteNombre: 'Álvaro Peña Núñez',
+            estadoEnvio: EstadoEnvioPedido.enviado,
+            createdAt: DateTime.utc(2026, 11, 18, 13, 0),
+            items: [
+              PedidoItem(
+                itemId: 'i2',
+                productoId: 'prod-2',
+                nombre: 'Collar',
+                cantidad: 1,
+                precioUnitario: 200.25,
+                estadoElaboracion: EstadoElaboracionPedido.terminado,
+              ),
+            ],
+          ),
+          // 3. Producción En proceso + Envío Pendiente
+          Pedido(
+            id: 'c3',
+            numeroPedido: 'PED-0003',
+            clienteId: 'cli-3',
+            clienteNombre: 'Sofía Hernández',
+            estadoEnvio: EstadoEnvioPedido.pendiente,
+            createdAt: DateTime.utc(2026, 11, 18, 14, 0),
+            items: [
+              PedidoItem(
+                itemId: 'i3a',
+                productoId: 'prod-1',
+                nombre: 'Pulsera',
+                cantidad: 1,
+                precioUnitario: 50.00,
+                estadoElaboracion: EstadoElaboracionPedido.terminado,
+              ),
+              PedidoItem(
+                itemId: 'i3b',
+                productoId: 'prod-2',
+                nombre: 'Aretes',
+                cantidad: 1,
+                precioUnitario: 50.00,
+                estadoElaboracion: EstadoElaboracionPedido.recibido,
+              ),
+            ],
+          ),
+          // 4. Producción Recibido sin ítems + Envío Pendiente
+          Pedido(
+            id: 'c4',
+            numeroPedido: 'PED-0004',
+            clienteId: 'cli-4',
+            clienteNombre: 'José Ángel Güiti',
+            estadoEnvio: EstadoEnvioPedido.pendiente,
+            createdAt: DateTime.utc(2026, 11, 18, 15, 0),
+            items: const [],
+          ),
+          // 5. Compatibilidad con pedido existente de Firestore sin estados explícitos
+          Pedido.fromMap({
+            'numeroPedido': 'PED-0005',
+            'clienteId': 'cli-5',
+            'clienteNombre': 'Cliente Histórico',
+            'createdAt': DateTime.utc(2026, 11, 18, 16, 0).toIso8601String(),
+            'items': [
+              {
+                'itemId': 'i5',
+                'productoId': 'prod-5',
+                'nombre': 'Anillo',
+                'cantidad': 2,
+                'precioUnitario': 40.00,
+              },
+            ],
+          }, id: 'c5'),
+        ];
+
+        expect(
+          pedidosCombinados[0].estadoProduccion.etiqueta,
+          'Terminado',
+        );
+        expect(pedidosCombinados[0].estadoEnvio.etiqueta, 'Pendiente');
+
+        expect(
+          pedidosCombinados[1].estadoProduccion.etiqueta,
+          'Terminado',
+        );
+        expect(pedidosCombinados[1].estadoEnvio.etiqueta, 'Enviado');
+
+        expect(
+          pedidosCombinados[2].estadoProduccion.etiqueta,
+          'En proceso',
+        );
+        expect(pedidosCombinados[2].estadoEnvio.etiqueta, 'Pendiente');
+
+        expect(
+          pedidosCombinados[3].estadoProduccion.etiqueta,
+          'Recibido',
+        );
+        expect(pedidosCombinados[3].estadoEnvio.etiqueta, 'Pendiente');
+
+        expect(
+          pedidosCombinados[4].estadoProduccion.etiqueta,
+          'Recibido',
+        );
+        expect(pedidosCombinados[4].estadoEnvio.etiqueta, 'Pendiente');
+
+        final datos = ReportePedidosPdfService.prepararDatos(
+          pedidos: pedidosCombinados,
+          periodo: PeriodoReportePedidos.hoy,
+          fechaReferencia: referencia,
+        );
+        expect(datos.cantidadPedidos, 5);
+        expect(datos.totalRegistrado, 500.75);
+
+        final bytes = await ReportePedidosPdfService.generarReporte(
+          pedidos: pedidosCombinados,
+          periodo: PeriodoReportePedidos.hoy,
+          fechaReferencia: referencia,
+        );
+        expect(bytes, isNotEmpty);
+        expect(ascii.decode(bytes.take(5).toList()), '%PDF-');
+      },
+    );
+
+    test(
+      'genera reporte multipágina con seis columnas alternando estados de producción y envío',
+      () async {
+        const estadosItem = EstadoElaboracionPedido.values;
+        const estadosEnvio = EstadoEnvioPedido.values;
+
+        final muchos = List<Pedido>.generate(45, (i) {
+          return Pedido(
+            id: 'mp-$i',
+            numeroPedido: 'PED-${(i + 1).toString().padLeft(4, '0')}',
+            clienteId: 'cli-$i',
+            clienteNombre: 'Cliente $i',
+            estadoEnvio: estadosEnvio[i % estadosEnvio.length],
+            createdAt: DateTime.utc(2026, 11, 18, 12, 0).add(
+              Duration(minutes: i),
+            ),
+            items: [
+              PedidoItem(
+                itemId: 'imp-$i',
+                productoId: 'prod-1',
+                nombre: 'Pulsera',
+                cantidad: 1,
+                precioUnitario: 100.00,
+                estadoElaboracion: estadosItem[i % estadosItem.length],
+              ),
+            ],
+          );
+        });
+
+        final datos = ReportePedidosPdfService.prepararDatos(
+          pedidos: muchos,
+          periodo: PeriodoReportePedidos.hoy,
+          fechaReferencia: referencia,
+        );
+        expect(datos.cantidadPedidos, 45);
+        expect(datos.totalRegistrado, 4500.00);
+
+        final bytes = await ReportePedidosPdfService.generarReporte(
+          pedidos: muchos,
+          periodo: PeriodoReportePedidos.hoy,
+          fechaReferencia: referencia,
+        );
+        expect(bytes, isNotEmpty);
+        expect(ascii.decode(bytes.take(5).toList()), '%PDF-');
+      },
+    );
+  });
 }
 
 class _BundleFallido extends CachingAssetBundle {
